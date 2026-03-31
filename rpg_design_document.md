@@ -9,14 +9,14 @@
 
 ## 1. Game Vision
 
-A 2D tile-based online RPG inspired by Tibia's world and Guild Wars 1's build system, featuring an oblique top-down perspective, modernized pixel art with lighting and particle effects, real-time combat with a limited skill bar, and an open hand-crafted world. Players explore, fight monsters, complete quests, collect loot, and craft builds from dual-class skill pools — all in a persistent world shared with a small group of friends.
+A 2D tile-based online RPG inspired by Tibia's world and Guild Wars 1's build system, featuring a top-down perspective with LPC-style pixel art, modernized with lighting and particle effects, real-time combat with a limited skill bar, and an open hand-crafted world. Players explore, fight monsters, complete quests, collect loot, and craft builds from dual-class skill pools — all in a persistent world shared with a small group of friends.
 
 ### Core Pillars
 
 - **Exploration-driven open world** — A hand-crafted world with distinct zones connected by ships, teleporters, and flight paths. Discovery is rewarding; the world is dense with secrets, lore, and hidden areas. Exploration is incentivized through stacking bonuses that are lost on death.
 - **Build-crafting depth** — Inspired by Guild Wars 1: choose 8 skills from a large pool across two classes, distribute attribute points, and adapt your build to the challenge. Free respec in town encourages experimentation.
 - **Meaningful real-time combat** — Energy-based skills with cooldowns and tactical positioning on a tile grid. Encounters should feel dangerous and require preparation.
-- **Smooth modernized retro feel** — Pixel art aesthetic elevated with dynamic lighting, particle effects, and smooth interpolated movement. Classic soul, modern polish.
+- **Smooth modernized retro feel** — LPC-compatible top-down pixel art elevated with dynamic lighting, particle effects, and smooth interpolated movement. Classic soul, modern polish.
 - **Small-server cooperative play** — Intimate online play for 2–20 players. No PvP. Cooperative dungeon crawling, trading, and shared exploration. Most content is solo-friendly; group content can be soloed when overleveled.
 
 ---
@@ -36,7 +36,7 @@ Bevy is a modern, open-source Rust game engine built on an ECS (Entity Component
 
 **Bevy caveats to be aware of:**
 - Pre-1.0 — API changes between versions (mitigated by pinning to a stable release).
-- No built-in networking — multiplayer must be implemented separately (see below).
+- No built-in networking — multiplayer implemented via `quinn` with a custom protocol (see below).
 - General-purpose renderer has overhead vs. a hand-tuned 2D pipeline, but this is negligible for a tile-based game.
 
 **Complementary crates (used alongside Bevy):**
@@ -44,7 +44,7 @@ Bevy is a modern, open-source Rust game engine built on an ECS (Entity Component
 | Layer | Crate | Purpose |
 |-------|-------|---------|
 | Tilemap rendering | `bevy_ecs_tilemap` | Efficient tile map rendering and chunk management |
-| Networking | `lightyear` | Server-authoritative multiplayer: replication, prediction, rollback, interpolation, input handling. Supports UDP and WebTransport (native + WASM) |
+| Networking | `quinn` | QUIC-based networking with custom protocol. Provides reliable + unreliable channels over UDP with built-in encryption. Simple, stable, no framework coupling |
 | Serialization | `serde` + `bincode` | Network messages and save data |
 | Persistence | `rusqlite` | SQLite database for player and world state persistence |
 | Tile map loading | `bevy_ecs_tiled` or custom parser | Load Tiled editor maps (.tmx/.tmj) into Bevy |
@@ -84,16 +84,19 @@ The architecture is designed so these ports are build-target changes, not rewrit
 
 **Client-side prediction** — The client predicts the player's own movement locally for responsiveness, then reconciles with server corrections. Other players and monsters are interpolated between server snapshots.
 
-**Network protocol:**
-- **Reliable channel** — Chat messages, inventory changes, quest updates, login/auth.
-- **Unreliable channel** — Position updates, combat events, animation triggers. High frequency (~20 ticks/second from server).
+**Network protocol (quinn / QUIC):**
+- Custom message types defined in the `common` crate, serialized with `serde` + `bincode`.
+- **Reliable streams** — Chat messages, inventory changes, quest updates, login/auth. QUIC provides ordered reliable delivery natively.
+- **Unreliable datagrams** — Position updates, combat events, animation triggers. High frequency (~20 ticks/second from server). QUIC supports unreliable datagrams via the datagram extension.
+- **Client-side prediction** for player movement is hand-rolled: predict tile transition locally, reconcile on server correction. Simple for tile-based movement.
 
-**Single server binary** supporting three deployment modes:
-- **LAN mode** — Bind to local network interface. Players connect via local IP.
-- **Online mode (self-hosted)** — Run on your machine with port forwarding or a tunnel service (e.g., ngrok, playit.gg). Free or very cheap.
-- **Cloud mode** — Deploy the same binary to a VPS (DigitalOcean, Hetzner, etc. ~$5–10/month). Always-on, public IP.
+**Four play modes**, all using the same server logic:
+- **Single-player mode** — Server runs as an embedded Bevy plugin inside the client app. No separate process, no networking. Player clicks "Single Player" and plays immediately. Requires clean separation of client and server plugins (good architecture regardless).
+- **LAN mode** — Standalone server binary bound to local network interface. Players connect via local IP.
+- **Online mode (self-hosted)** — Standalone server on your machine with port forwarding or a tunnel service (e.g., ngrok, playit.gg). Free or very cheap.
+- **Cloud mode** — Deploy the standalone server binary to a VPS (DigitalOcean, Hetzner, etc. ~$5–10/month). Always-on, public IP.
 
-Players connect by entering `ip:port` in the client. No matchmaking infrastructure needed.
+For multiplayer modes, players connect by entering `ip:port` in the client. No matchmaking infrastructure needed.
 
 ### 2.4 Tick Rate & Game Loop
 
@@ -128,11 +131,11 @@ Simple system suitable for a small private server:
 
 ### 3.1 Perspective
 
-**Oblique top-down projection** (Tibia-style). The camera looks down at an angle, giving depth to walls and objects without true isometric diamond-grid complexity.
+**Straight top-down perspective** (RPG Maker / classic Zelda style). The camera looks directly down. Depth is conveyed through Y-sorting, taller character sprites, and layered rendering — not through angled projection.
 
-- Tiles are rectangular (e.g., 32×32 pixels for ground tiles).
-- Objects and characters use taller sprites to convey height.
-- Walls and elevation changes are drawn with visible front faces.
+- Tiles are square (32×32 pixels for ground tiles).
+- Characters use taller sprites (64×64) that overlap the tile behind them, creating a natural sense of depth via Y-sorting.
+- Walls and elevation are conveyed through sprite layering and occlusion (e.g., walking behind a wall hides the character).
 - No camera rotation — fixed angle.
 
 ### 3.2 Tile System
@@ -171,7 +174,7 @@ The world is composed of **discrete zones** (maps), each a rectangular tilemap. 
 
 - **Walking transitions** — Step on a tile at the edge of a zone to seamlessly load the adjacent zone.
 - **Ships** — Travel between continents/islands. Triggered by NPC interaction at a dock.
-- **Teleporters** — Magical portals for fast travel between key locations.
+- **Waypoints** — Discoverable fast-travel nodes placed throughout the world. Activated by visiting them. Players can teleport from any activated waypoint to any other activated waypoint. Every town has a waypoint. Placed at key locations in the field as well (dungeon entrances, crossroads, remote camps). Free to use.
 - **Flight paths** — Unlockable fast-travel routes between discovered towns.
 
 Each zone has a unique theme, tileset, and monster population. The world is fully hand-crafted using the **Tiled** map editor.
@@ -180,7 +183,7 @@ Each zone has a unique theme, tileset, and monster population. The world is full
 
 **No central main quest or endgame goal.** Like Tibia, each zone and region has its own self-contained questlines and stories. Players discover lore and narrative through exploration, NPC dialogue, and zone-specific quest chains. The world grows organically as new zones are added, each bringing their own story. This keeps the game open-ended and avoids a "finished the story, now what?" problem.
 
-### 4.2 Map Editor Pipeline
+### 4.3 Map Editor Pipeline
 
 ```
 Tiled Editor (.tmx/.tmj)
@@ -195,14 +198,19 @@ NPC positions, transition points, light sources, object metadata
 
 Tiled supports custom properties on tiles and objects, which can encode game-specific data: spawn types, NPC dialogue keys, quest triggers, door locks, etc.
 
-### 4.3 Zone Expansion
+### 4.4 Zone Expansion
 
 New zones are added by creating new maps in Tiled and connecting them to existing zones via transition tiles or travel NPCs. The server loads all zone definitions at startup. This makes the game easy to expand — add a map file and a connection, and the new content is live.
 
-### 4.4 Collision & Pathfinding
+### 4.5 Collision & Pathfinding
 
-- **Collision:** Tile-based. Each tile is either walkable or blocked (with per-layer collision flags). Simple and fast.
-- **Pathfinding (server-side):** A* on the tile grid for monster AI. Players don't need server-side pathfinding since they send direct movement inputs.
+- **Terrain collision:** Tile-based. Each tile is either walkable or blocked (with per-layer collision flags). Simple and fast.
+- **Entity collision rules:**
+  - **Players pass through players** — no blocking between players. Prevents griefing and pathing frustration.
+  - **Players and monsters block each other** — a player cannot walk through a monster, and a monster cannot walk through a player. This makes positioning tactical: a Champion can tank a doorway, but getting surrounded is genuinely dangerous. Movement skills (Charge, Evasive Roll) serve as escape tools.
+  - **Monsters block monsters** — monsters cannot stack on the same tile. Creates natural-looking movement and tactical bottlenecks.
+- **Simultaneous move conflicts:** When two blocking entities try to move to the same tile on the same tick, the server resolves by priority: the entity whose move was received first wins; the other's move is rejected and they remain on their original tile.
+- **Pathfinding (server-side):** A* on the tile grid for monster AI, accounting for both terrain and entity blocking. Players don't need server-side pathfinding since they send direct movement inputs.
 
 ---
 
@@ -223,7 +231,7 @@ The game world is logically a tile grid. A character's **authoritative position*
 
 ### 5.2 Movement Speed
 
-Movement speed is a character stat (base + equipment bonuses). It controls the tile transition duration. Possible speed buffs from spells, mounts, or debuffs from terrain (e.g., swamp tiles slow movement).
+Movement speed is a character stat (base + equipment bonuses). It controls the tile transition duration. Possible speed buffs from spells, skills, and equipment, or debuffs from terrain (e.g., swamp tiles slow movement).
 
 ---
 
@@ -231,7 +239,7 @@ Movement speed is a character stat (base + equipment bonuses). It controls the t
 
 ### 6.1 Overview
 
-Real-time, skill-based combat on the tile grid. Players equip a bar of 8 skills chosen from their two class pools and use them in combat fueled by a fast-recharging energy system. Combat is PvE only — no player-vs-player combat.
+Real-time, skill-based combat on the tile grid. Players equip a bar of 7 regular skills + 1 ultimate chosen from their two class pools and use them in combat fueled by a fast-recharging energy system. Combat is PvE only — no player-vs-player combat.
 
 ### 6.2 Skill Bar
 
@@ -245,10 +253,17 @@ Inspired by Guild Wars 1's build system:
 
 ### 6.3 Energy System
 
-- **Energy** is the resource for all skills (replaces mana).
-- Energy has a maximum pool (e.g., 40–80 depending on class/attributes) and **regenerates quickly** — roughly 3–4 energy per second at base rate.
+- **Energy** is the universal resource for all skills (replaces mana).
+- Energy has a maximum pool (e.g., 40–80 depending on class/attributes) and **regenerates quickly** — roughly 3–4 energy per second at base rate. Champions have lower base energy regeneration than other classes, compensated by the Momentum system.
 - This means players are always casting, always active. Energy management is about pacing and prioritization, not conservation.
 - Some skills or effects can drain, steal, or boost energy regeneration — creating counterplay in PvE encounters.
+
+**Momentum (Champion only):**
+- Secondary resource unique to the Champion class. A player-level resource (not per-target).
+- **Max 10 stacks.** Built by landing melee hits — auto-attacks and melee skills each grant 1 stack.
+- **Decays after ~10 seconds out of combat** — momentum resets if the Champion stops fighting.
+- **Finisher skills** consume all current momentum stacks, with damage/effect scaling based on stacks consumed. More momentum = bigger payoff.
+- Creates a distinct combat rhythm: sustain with attacks to build momentum, then unleash powerful finishers. Compensates for lower energy regen by rewarding sustained aggression.
 
 ### 6.4 Attack Types
 
@@ -346,7 +361,7 @@ Death is **consequential but not punishing**:
 - Movement abilities — charges, leaps, gap-closers. Gets into the fight fast.
 - Shouts — warcry buffs for allies, intimidation debuffs on enemies.
 - Berserker skills — risk/reward abilities trading defense for offense, possibly stronger at low HP.
-- Purely physical — no magic whatsoever.
+- Purely physical — no magic whatsoever. Lower base energy regen than other classes, compensated by the **Momentum** system (build stacks through melee hits, spend on finishers).
 - Weapons: 1H swords/axes/maces + shield, 2H greatswords/hammers/greataxes, dual wield 1H weapons.
 - Armor: heavy plate.
 - Attribute lines:
@@ -690,20 +705,20 @@ Each character has a **preset personal house** in their home town. No buying, se
 
 ## 9. NPCs, Quests & Lore
 
-### 8.1 NPCs
+### 9.1 NPCs
 
 - NPCs are placed on the map via the Tiled editor with custom properties defining their type and data references.
 - **Dialogue trees** — NPC interaction uses a click-through dialogue tree system. Players are presented with dialogue and choose from response options that branch the conversation.
 - NPC types: quest givers, shopkeepers (buy/sell items), skill trainers (teach skills for gold), blessing NPCs, lore providers, travel NPCs (ships, teleporters), and flavor/ambient characters.
 
-### 8.2 Quests
+### 9.2 Quests
 
 - Quests are defined in data files (RON or JSON) — not hardcoded.
 - Quest types: kill X monsters, deliver item, explore area, defeat boss, solve puzzle, escort NPC.
 - Quests can gate access to new zones, unlock the secondary class, reward rare skills, or provide unique equipment.
 - Quest log tracks active and completed quests.
 
-### 8.3 Monsters
+### 9.3 Monsters
 
 - Monsters spawn in defined zones at defined spawn points (configured in Tiled).
 - Each monster type has: stats, loot table, AI behavior pattern, respawn timer, skill set.
@@ -715,13 +730,13 @@ Each character has a **preset personal house** in their home town. No buying, se
 
 ## 10. Inventory & Economy
 
-### 9.1 Inventory
+### 10.1 Inventory
 
 - Grid-based or slot-based inventory (to be decided).
 - Weight or slot limit.
 - Equipment slots: head, chest, legs, feet, main hand, off hand, ring, amulet.
 
-### 9.2 Economy
+### 10.2 Economy
 
 - Monsters drop gold and items.
 - NPC shops for buying/selling basics.
@@ -838,8 +853,16 @@ The game should be heavily data-driven to allow content expansion without recomp
 - **Shared logic in common crate** — Any logic needed by both client and server (combat formulas, movement validation, type definitions, protocol) lives in the `common` crate. Never duplicate logic between client and server.
 - **Small, focused modules** — Prefer many small files over few large ones. A 500-line file should be split. Each file should have a clear, single responsibility.
 - **Explicit over clever** — Readable, obvious code is preferred over elegant abstractions. Comments explain *why*, not *what*.
+- **Pin Bevy, upgrade deliberately** — Bevy is pre-1.0 and breaking changes between versions are expected. Pin to a specific release and only upgrade when needed (bug fixes, crate compatibility). Budget time for upgrade work when it happens.
 
-### 13.2 Bevy ECS Patterns
+### 13.2 Testing Strategy
+
+- **Unit tests** — `common` crate is the priority: damage calculations, stat scaling, skill effects, condition/boon logic, movement validation. These are pure functions with no engine dependencies — fast and easy to test.
+- **Integration tests** — Client-server interaction: connection handshake, movement synchronization, combat resolution, inventory changes. Run a headless server and simulated client in-process.
+- **Data validation tests** — All data files (skills, monsters, items, quests, dialogues) must parse correctly, reference valid attribute lines, and contain no broken references. Run on every test pass.
+- **CI merge pipeline** — All tests run on every merge request via CI (GitHub Actions). Merge is blocked if any test fails. Pipeline also runs `cargo clippy` and `cargo fmt --check`.
+
+### 13.3 Bevy ECS Patterns
 
 - **Components are data-only structs** — No logic in components. They hold state.
 - **Systems are functions** — Each system queries for components it needs and operates on them. Keep systems small and focused.
@@ -919,12 +942,12 @@ halestorm/
 
 ---
 
-## 14. Development Phases
+## 15. Development Phases
 
 ### Phase 1 — Core Engine & Networking
 - Bevy app setup, window creation, basic 2D rendering.
 - Load and display a Tiled map with `bevy_ecs_tilemap`.
-- Client-server connection via `lightyear` or `bevy_replicon`.
+- Client-server connection via `quinn` with custom message protocol.
 - Player movement with server authority and client-side prediction.
 - Basic sprite rendering and Y-sorting.
 
@@ -993,7 +1016,7 @@ All game art is sourced from the **Liberated Pixel Cup (LPC)** project and compa
 
 Characters are generated using the **Universal LPC Spritesheet Generator** (https://liberatedpixelcup.github.io/Universal-LPC-Spritesheet-Character-Generator/).
 
-- Character sprites are **64×64 pixels** on a 32×32 tile grid (characters are taller than one tile, which gives the oblique perspective its sense of height).
+- Character sprites are **64×64 pixels** on a 32×32 tile grid (characters are taller than one tile, creating depth through Y-sorted overlap).
 - The generator produces sprite sheets with animations: walk, run, idle, spellcast, slash, thrust, shoot, hurt, and more.
 - Body types, heads, hair, clothing, armor, and weapons can be mixed and matched.
 - For the cosmetic outfit system: each unlockable outfit is a pre-generated sprite sheet combining specific clothing/armor/accessory layers. Players don't mix armor visually in-game — outfits are curated complete looks.
@@ -1028,60 +1051,7 @@ LPC requires crediting all contributing artists. The spritesheet generator can a
 
 ---
 
-## 17. Design Review — Open Issues
-
-The following issues were identified during an impartial review of the document. Each needs to be addressed before or during early implementation.
-
-### Critical (address before Phase 1)
-
-**R1. LPC art style vs. oblique top-down perspective.**
-LPC sprites are designed for a straight top-down perspective — characters face the camera squarely. Tibia's oblique projection draws sprites with visible fronts and tops simultaneously. These styles may not be compatible. A visual prototype with LPC sprites on a tilemap should be built early to validate whether the perspective works or needs to shift closer to straight top-down. This could affect the entire visual identity of the game.
-
-**R2. Movement system underspecified.**
-The doc describes smooth tile-to-tile interpolation but doesn't address: Can two entities occupy the same tile? Can players move through each other? What happens when two players or a player and a monster try to move to the same tile simultaneously? What about monster-to-monster stacking? These are critical for the server authoritative model and affect combat, pathfinding, and the feel of the game.
-
-**R3. Networking approach — lightyear complexity vs. need.**
-Lightyear is powerful (prediction, rollback, interpolation) but has a steep learning curve and is itself rapidly evolving. For a tile-based game at 20 ticks/second, a simpler approach (raw `quinn` with custom message types) might be easier to maintain. Recommendation: prototype both early and compare complexity vs. benefit before committing.
-
-### Important (address during Phase 1-2)
-
-**R4. Bevy version risk.**
-Bevy is pre-1.0 and breaking changes between versions can require significant refactoring — not just API renames but architectural changes. Pinning helps, but upgrading will eventually be needed for bug fixes or crate compatibility. Budget time for Bevy upgrades in the development plan.
-
-**R5. No testing strategy documented.**
-Given the stated priority on code quality and maintainability, the doc should specify how game logic is tested. The `common` crate (combat formulas, stat calculations, skill effects, damage resolution) is highly testable with unit tests. Integration tests for client-server interaction should also be planned. Add a testing section to the engineering principles.
-
-**R6. No offline / single-player mode discussed.**
-If the server is down or you just want to play alone, can you? The implied answer is "run a local server," but a true embedded single-player mode (client spawns a server internally) would be much better UX. Bevy's architecture supports this — the server can run as a plugin in the same app. Worth deciding early since it affects architecture.
-
-### Design Concerns (address during design iteration)
-
-**R7. Skill balance surface area.**
-72 starter skills + 24 ultimates across 18 dual-class combos is a large balance surface for PvE. The GW1 team needed years to balance their skill pool. Consider starting with 2 skills per line instead of 3 and adding more once the core combat loop feels good. Fewer well-tuned skills beat many unbalanced ones.
-
-**R8. Field-locked skill bar + open world friction.**
-In GW1, returning to an outpost to swap skills was fast. In a Tibia-style open world, getting back to town could be a long journey. If a player realizes they brought the wrong build, their options are: walk all the way back, or die intentionally to teleport home (losing blessings). Consider whether a hearthstone/recall ability or waypoint system is needed to reduce this friction.
-
-**R9. Energy as Champion resource — thematic flavor.**
-The Champion is "purely physical, no magic" but all skills cost energy. What is energy thematically for the Champion? Stamina? Adrenaline? This is a minor flavor issue but affects naming and class fantasy. Consider renaming it "stamina" for physical classes or making it universal and not tied to magic thematically.
-
-**R10. Reaper's Rite is an out-of-combat ritual ultimate.**
-The Cultist Fanatism ultimate (Reaper's Rite) is cast out of combat to empower the scythe. Unlike all other ultimates which are combat activations on a 3 min CD, this one is a pre-buff. This creates an inconsistency: does the 3 min CD start on cast, or on combat start? Can it be pre-cast and then another ultimate slotted? Needs clarification to avoid edge cases.
-
-### Document Cleanup (fix anytime)
-
-**R11. Duplicate section numbering.**
-Two sections are numbered 4.2 (Narrative Approach and Map Editor Pipeline). Several subsection numbers don't match their parent section (e.g., Section 9 "NPCs, Quests & Lore" has subsections labeled 8.1, 8.2, 8.3). Full renumbering pass needed.
-
-**R12. Skill bar count inconsistency.**
-Section 6.1 says "bar of 8 skills." Section 6.2 says "7 skills + 1 ultimate." The 7+1 framing is the intended design but the "8" phrasing appears in multiple places and could confuse an implementer.
-
-**R13. Section 5.2 mentions mounts.**
-Movement Speed section still references "possible speed buffs from spells, mounts" despite mounts being explicitly excluded in Section 8.4.
-
----
-
-## 18. Open Design Decisions
+## 17. Open Design Decisions
 
 The following need further discussion and will be expanded in future revisions:
 
