@@ -179,11 +179,23 @@ The world is composed of **discrete zones** (maps), each a rectangular tilemap. 
 
 Each zone has a unique theme, tileset, and monster population. The world is fully hand-crafted using the **Tiled** map editor.
 
-### 4.2 Narrative Approach
+### 4.2 Multi-Floor Elevation (Tibia-style)
+
+Each zone supports **multiple floors** (vertical layers). A zone is not just a flat tilemap — it is a stack of floors, each with its own tile layers, collision, entities, and lighting.
+
+- **Floor numbering:** Ground level is floor 0. Floors above are +1, +2, etc. Floors below (basements, caves, sewers) are -1, -2, etc.
+- **Stairs and ladders** — Transition tiles that move the player up or down one floor within the same zone. The transition is instant (no loading screen). This is a key tactical mechanic: **monsters do not follow players between floors** (with rare exceptions for special monsters). Stairs are an escape route — if overwhelmed, flee to the nearest staircase.
+- **Per-floor visibility** — Only the current floor is rendered. Walking downstairs hides the surface; walking upstairs hides the basement. Floors are fully independent visual layers.
+- **Per-floor collision** — Each floor has its own collision map. A wall on floor 0 does not affect floor 1.
+- **Per-floor spawns** — Monsters spawn on specific floors. Deeper dungeon floors have harder monsters, creating vertical difficulty progression within a single zone.
+- **Buildings and interiors** — A building's exterior is on floor 0. Its interior can be on floor 0 (entered via door transition) or on a separate floor (e.g., floor +1 for upper stories, floor -1 for cellars). This adds density to the world without expanding horizontally.
+- **Tiled implementation** — Each floor is a separate Tiled layer group (or a separate .tmj file linked to the zone). Floor metadata (stair connections, floor number) is encoded as custom properties.
+
+### 4.3 Narrative Approach
 
 **No central main quest or endgame goal.** Like Tibia, each zone and region has its own self-contained questlines and stories. Players discover lore and narrative through exploration, NPC dialogue, and zone-specific quest chains. The world grows organically as new zones are added, each bringing their own story. This keeps the game open-ended and avoids a "finished the story, now what?" problem.
 
-### 4.3 Map Editor Pipeline
+### 4.4 Map Editor Pipeline
 
 ```
 Tiled Editor (.tmx/.tmj)
@@ -198,11 +210,11 @@ NPC positions, transition points, light sources, object metadata
 
 Tiled supports custom properties on tiles and objects, which can encode game-specific data: spawn types, NPC dialogue keys, quest triggers, door locks, etc.
 
-### 4.4 Zone Expansion
+### 4.5 Zone Expansion
 
 New zones are added by creating new maps in Tiled and connecting them to existing zones via transition tiles or travel NPCs. The server loads all zone definitions at startup. This makes the game easy to expand — add a map file and a connection, and the new content is live.
 
-### 4.5 Collision & Pathfinding
+### 4.6 Collision & Pathfinding
 
 - **Terrain collision:** Tile-based. Each tile is either walkable or blocked (with per-layer collision flags). Simple and fast.
 - **Entity collision rules:**
@@ -1026,7 +1038,7 @@ Characters are generated using the **Universal LPC Spritesheet Generator** (http
 
 - LPC-compatible tilesets from OpenGameArt.org for terrain, buildings, dungeons, interiors, and props.
 - 32×32 ground tiles matching the LPC character style.
-- All tilesets loaded via the Tiled editor pipeline (see Section 4.2).
+- All tilesets loaded via the Tiled editor pipeline (see Section 4.4).
 
 ### 16.4 Monsters & NPCs
 
