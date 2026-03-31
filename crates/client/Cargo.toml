@@ -9,6 +9,7 @@ path = "src/main.rs"
 
 [dependencies]
 halestorm-common = { path = "../common" }
+halestorm-server = { path = "../server" }
 bevy = { version = "0.18", default-features = false, features = [
     "2d",
     "x11",

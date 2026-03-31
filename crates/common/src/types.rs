@@ -22,7 +22,9 @@ pub struct EntityId(pub u64);
 pub struct PlayerId(pub u64);
 
 /// Server tick counter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, PartialOrd, Ord,
+)]
 pub struct Tick(pub u64);
 
 /// 8-directional movement.

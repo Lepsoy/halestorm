@@ -6,3 +6,5 @@ edition = "2024"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 bincode = "1"
+crossbeam-channel = "0.5"
+bevy = { version = "0.18", default-features = false, features = ["bevy_log"] }
