@@ -1,0 +1,15 @@
+[package]
+name = "halestorm-client"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "client"
+path = "src/main.rs"
+
+[dependencies]
+halestorm-common = { path = "../common" }
+bevy = { version = "0.18", default-features = false, features = [
+    "2d",
+    "x11",
+] }

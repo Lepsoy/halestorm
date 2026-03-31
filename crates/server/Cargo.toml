@@ -1,0 +1,12 @@
+[package]
+name = "halestorm-server"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "server"
+path = "src/main.rs"
+
+[dependencies]
+halestorm-common = { path = "../common" }
+bevy = { version = "0.18", default-features = false, features = ["bevy_log"] }
