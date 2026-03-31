@@ -5,7 +5,9 @@ use halestorm_common::local_transport_plugin::LocalTransportPlugin;
 use halestorm_common::protocol::ClientMessage;
 use halestorm_common::transport::MessageOutbox;
 use halestorm_server::plugins::game::ServerGamePlugin;
+use plugins::camera::CameraPlugin;
 use plugins::game::ClientGamePlugin;
+use plugins::rendering::RenderingPlugin;
 
 fn main() {
     App::new()
@@ -18,6 +20,10 @@ fn main() {
             ..default()
         }))
         .insert_resource(ClearColor(Color::srgb(0.1, 0.1, 0.15)))
+        // Camera
+        .add_plugins(CameraPlugin)
+        // Map rendering
+        .add_plugins(RenderingPlugin)
         // Embedded server (single-player mode)
         .add_plugins(ServerGamePlugin)
         // Local transport (in-process channels)
@@ -25,14 +31,9 @@ fn main() {
         // Client game logic
         .add_plugins(ClientGamePlugin)
         // Startup: auto-login for testing
-        .add_systems(Startup, startup)
+        .add_systems(Startup, || info!("Halestorm client starting (single-player mode)"))
         .add_systems(Update, auto_login)
         .run();
-}
-
-fn startup(mut commands: Commands) {
-    commands.spawn(Camera2d);
-    info!("Halestorm client starting (single-player mode)");
 }
 
 /// Temporary auto-login sequence for testing the transport.
@@ -42,27 +43,36 @@ fn auto_login(
     state: Res<plugins::game::ClientState>,
     mut step: Local<u8>,
 ) {
-    use plugins::game::{ClientPhase, send_message};
+    use plugins::game::{send_message, ClientPhase};
 
     match *step {
         0 => {
-            send_message(&mut outbox, ClientMessage::CreateAccount {
-                username: "test".into(),
-                password: "test".into(),
-            });
+            send_message(
+                &mut outbox,
+                ClientMessage::CreateAccount {
+                    username: "test".into(),
+                    password: "test".into(),
+                },
+            );
             *step = 1;
         }
         1 => {
-            send_message(&mut outbox, ClientMessage::Login {
-                username: "test".into(),
-                password: "test".into(),
-            });
+            send_message(
+                &mut outbox,
+                ClientMessage::Login {
+                    username: "test".into(),
+                    password: "test".into(),
+                },
+            );
             *step = 2;
         }
         2 if state.phase == ClientPhase::LoggedIn => {
-            send_message(&mut outbox, ClientMessage::CreateCharacter {
-                name: "Hero".into(),
-            });
+            send_message(
+                &mut outbox,
+                ClientMessage::CreateCharacter {
+                    name: "Hero".into(),
+                },
+            );
             *step = 3;
         }
         3 if state.phase == ClientPhase::LoggedIn => {
