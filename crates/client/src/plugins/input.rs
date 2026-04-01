@@ -78,6 +78,20 @@ fn handle_movement_input(
 }
 
 fn read_direction(keyboard: &ButtonInput<KeyCode>) -> Option<Direction> {
+    // Dedicated diagonal keys take priority
+    if keyboard.pressed(KeyCode::KeyQ) {
+        return Some(Direction::NorthWest);
+    }
+    if keyboard.pressed(KeyCode::KeyE) {
+        return Some(Direction::NorthEast);
+    }
+    if keyboard.pressed(KeyCode::KeyZ) {
+        return Some(Direction::SouthWest);
+    }
+    if keyboard.pressed(KeyCode::KeyC) {
+        return Some(Direction::SouthEast);
+    }
+
     let up = keyboard.pressed(KeyCode::KeyW) || keyboard.pressed(KeyCode::ArrowUp);
     let down = keyboard.pressed(KeyCode::KeyS) || keyboard.pressed(KeyCode::ArrowDown);
     let left = keyboard.pressed(KeyCode::KeyA) || keyboard.pressed(KeyCode::ArrowLeft);
