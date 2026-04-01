@@ -297,7 +297,7 @@ fn check_login_success(
     }
 
     if state.phase == ClientPhase::LoggedIn {
-        next_screen.set(GameScreen::CharacterCreate);
+        next_screen.set(GameScreen::CharacterSelect);
         return;
     }
 

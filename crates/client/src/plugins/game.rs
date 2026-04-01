@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use halestorm_common::protocol::{ClientMessage, ServerMessage};
+use halestorm_common::protocol::{CharacterInfo, ClientMessage, ServerMessage};
 use halestorm_common::transport::{ConnectionId, MessageInbox, MessageOutbox};
 use halestorm_common::types::{EntityId, PlayerId, PrimaryClass, Tick, TilePosition};
 
@@ -26,8 +26,10 @@ pub struct ClientState {
     pub last_confirmed_tick: Option<Tick>,
     /// The player's class (determines sprite)
     pub class: Option<PrimaryClass>,
-    /// Whether the account already has a character
-    pub has_character: bool,
+    /// Characters available on this account
+    pub characters: Vec<CharacterInfo>,
+    /// Set when a character was just created (triggers return to select screen)
+    pub character_just_created: bool,
     /// Last status message for UI display (login errors, etc.)
     pub status_message: Option<String>,
     /// Whether account was just created (for UI feedback)
@@ -54,9 +56,13 @@ fn process_server_messages(
                 state.status_message = Some("Account created! You can now log in.".into());
             }
 
-            ServerMessage::LoginSuccess { player_id } => {
-                info!("Logged in as player {:?}", player_id);
+            ServerMessage::LoginSuccess {
+                player_id,
+                characters,
+            } => {
+                info!("Logged in as player {:?} ({} characters)", player_id, characters.len());
                 state.player_id = Some(player_id);
+                state.characters = characters;
                 state.phase = ClientPhase::LoggedIn;
             }
 
@@ -69,13 +75,14 @@ fn process_server_messages(
                 name,
                 class,
                 spawn_position,
+                characters,
             } => {
                 info!(
                     "Character '{name}' ({class}) created at ({}, {})",
                     spawn_position.x, spawn_position.y
                 );
-                state.class = Some(class);
-                state.has_character = true;
+                state.characters = characters;
+                state.character_just_created = true;
             }
 
             ServerMessage::EnterWorld {

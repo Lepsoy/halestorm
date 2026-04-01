@@ -114,12 +114,33 @@ impl Database {
         Ok(conn.last_insert_rowid())
     }
 
-    /// Get the character for an account (first one — single character per account for now).
-    pub fn get_character(&self, account_id: i64) -> Option<CharacterRow> {
+    /// Get all characters for an account.
+    pub fn get_characters(&self, account_id: i64) -> Vec<CharacterRow> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT id, account_id, name, class, position_x, position_y FROM characters WHERE account_id = ?1")
+            .unwrap();
+        stmt.query_map(rusqlite::params![account_id], |row| {
+            Ok(CharacterRow {
+                id: row.get(0)?,
+                account_id: row.get(1)?,
+                name: row.get(2)?,
+                class: row.get(3)?,
+                position_x: row.get(4)?,
+                position_y: row.get(5)?,
+            })
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    /// Get a specific character by id.
+    pub fn get_character_by_id(&self, character_id: i64) -> Option<CharacterRow> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT id, account_id, name, class, position_x, position_y FROM characters WHERE account_id = ?1",
-            rusqlite::params![account_id],
+            "SELECT id, account_id, name, class, position_x, position_y FROM characters WHERE id = ?1",
+            rusqlite::params![character_id],
             |row| {
                 Ok(CharacterRow {
                     id: row.get(0)?,

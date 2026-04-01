@@ -5,7 +5,7 @@ use argon2::{
 use bevy::prelude::*;
 use halestorm_common::local_transport_plugin::LocalTransportSet;
 use halestorm_common::map::CollisionMap;
-use halestorm_common::protocol::{ClientMessage, EntityState, ServerMessage};
+use halestorm_common::protocol::{CharacterInfo, ClientMessage, EntityState, ServerMessage};
 use halestorm_common::transport::{ConnectionId, MessageInbox, MessageOutbox};
 use halestorm_common::types::{Direction, EntityId, PrimaryClass, Tick, TilePosition};
 use std::collections::HashMap;
@@ -158,57 +158,35 @@ fn process_messages(
 
                 match db.get_account(&username) {
                     Some(account) if verify_password(&password, &account.password_hash) => {
-                        // Check if account has a character already
-                        let character = db.get_character(account.id).map(|c| {
-                            let class = parse_class(&c.class);
-                            (
-                                c.id,
-                                CharacterData {
-                                    name: c.name,
-                                    class,
-                                    position: TilePosition::new(c.position_x, c.position_y),
-                                    direction: Direction::South,
-                                    moving: false,
-                                },
-                            )
-                        });
-
-                        let (char_db_id, char_data) = match character {
-                            Some((id, data)) => (Some(id), Some(data)),
-                            None => (None, None),
-                        };
+                        // List all characters for this account
+                        let characters: Vec<CharacterInfo> = db
+                            .get_characters(account.id)
+                            .into_iter()
+                            .map(|c| CharacterInfo {
+                                id: c.id as u64,
+                                name: c.name,
+                                class: parse_class(&c.class),
+                            })
+                            .collect();
 
                         state.sessions.insert(
                             conn,
                             PlayerSession {
                                 player_id: account.id,
                                 username: username.clone(),
-                                character: char_data,
+                                character: None,
                                 entity_id: None,
-                                character_db_id: char_db_id,
+                                character_db_id: None,
                             },
                         );
-                        info!("Player logged in: {username}");
+                        info!("Player logged in: {username} ({} characters)", characters.len());
                         outbox.push(
                             conn,
                             ServerMessage::LoginSuccess {
                                 player_id: halestorm_common::types::PlayerId(account.id as u64),
+                                characters,
                             },
                         );
-
-                        // If account already has a character, notify client
-                        if let Some(session) = state.sessions.get(&conn)
-                            && let Some(ref character) = session.character
-                        {
-                            outbox.push(
-                                conn,
-                                ServerMessage::CharacterCreated {
-                                    name: character.name.clone(),
-                                    class: character.class,
-                                    spawn_position: character.position,
-                                },
-                            );
-                        }
                     }
                     _ => {
                         outbox.push(conn, ServerMessage::LoginFailed {
@@ -228,22 +206,25 @@ fn process_messages(
                         &class.to_string(),
                         spawn,
                     ) {
-                        Ok(char_id) => {
-                            session.character_db_id = Some(char_id);
-                            session.character = Some(CharacterData {
-                                name: name.clone(),
-                                class,
-                                position: spawn,
-                                direction: Direction::South,
-                                moving: false,
-                            });
+                        Ok(_char_id) => {
                             info!("Character created: {name} ({class})");
+                            // Fetch updated character list
+                            let characters: Vec<CharacterInfo> = db
+                                .get_characters(session.player_id)
+                                .into_iter()
+                                .map(|c| CharacterInfo {
+                                    id: c.id as u64,
+                                    name: c.name,
+                                    class: parse_class(&c.class),
+                                })
+                                .collect();
                             outbox.push(
                                 conn,
                                 ServerMessage::CharacterCreated {
                                     name,
                                     class,
                                     spawn_position: spawn,
+                                    characters,
                                 },
                             );
                         }
@@ -254,28 +235,42 @@ fn process_messages(
                 }
             }
 
-            ClientMessage::EnterWorld => {
+            ClientMessage::SelectCharacter { character_id } => {
+                let Some(ref db) = db else { continue };
                 let entity_id = state.next_entity();
-                if let Some(session) = state.sessions.get_mut(&conn)
-                    && let Some(ref character) = session.character
-                {
-                    let position = character.position;
-                    let class = character.class;
-                    session.entity_id = Some(entity_id);
-                    info!(
-                        "Player {} entering world at ({}, {}) as {class}",
-                        session.username, position.x, position.y
-                    );
-                    outbox.push(
-                        conn,
-                        ServerMessage::EnterWorld {
-                            tick: state.tick,
-                            entity_id,
-                            position,
-                            map_id: "test_map".into(),
+                if let Some(session) = state.sessions.get_mut(&conn) {
+                    // Verify character belongs to this account
+                    if let Some(c) = db.get_character_by_id(character_id as i64) {
+                        if c.account_id != session.player_id {
+                            warn!("Player {} tried to select another account's character", session.username);
+                            continue;
+                        }
+                        let class = parse_class(&c.class);
+                        let position = TilePosition::new(c.position_x, c.position_y);
+                        session.character = Some(CharacterData {
+                            name: c.name.clone(),
                             class,
-                        },
-                    );
+                            position,
+                            direction: Direction::South,
+                            moving: false,
+                        });
+                        session.character_db_id = Some(c.id);
+                        session.entity_id = Some(entity_id);
+                        info!(
+                            "Player {} selected character '{}' ({class}) at ({}, {})",
+                            session.username, c.name, position.x, position.y
+                        );
+                        outbox.push(
+                            conn,
+                            ServerMessage::EnterWorld {
+                                tick: state.tick,
+                                entity_id,
+                                position,
+                                map_id: "test_map".into(),
+                                class,
+                            },
+                        );
+                    }
                 }
             }
 

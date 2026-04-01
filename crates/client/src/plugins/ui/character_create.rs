@@ -8,7 +8,7 @@ use super::text_input::{
     TextInput, TextInputLink, handle_tab_focus, handle_text_input_focus, update_text_inputs,
 };
 use super::GameScreen;
-use crate::plugins::game::{ClientPhase, ClientState};
+use crate::plugins::game::ClientState;
 
 pub struct CharacterCreatePlugin;
 
@@ -25,8 +25,7 @@ impl Plugin for CharacterCreatePlugin {
                     handle_class_buttons,
                     handle_create_button,
                     handle_enter_key,
-                    check_enter_world,
-                    skip_to_enter_if_has_character,
+                    check_character_created,
                 )
                     .distributive_run_if(in_state(GameScreen::CharacterCreate)),
             );
@@ -315,34 +314,22 @@ fn try_create(
     }
 
     crate::plugins::game::send_message(outbox, ClientMessage::CreateCharacter { name, class });
-    crate::plugins::game::send_message(outbox, ClientMessage::EnterWorld);
 
     if let Ok(mut text) = status_q.single_mut() {
         **text = "Entering world...".to_string();
     }
 }
 
-/// If the account already has a character, skip creation and enter world directly.
-fn skip_to_enter_if_has_character(
-    state: Res<ClientState>,
-    mut outbox: ResMut<MessageOutbox<ClientMessage>>,
-    mut done: Local<bool>,
+/// After character creation, go back to select screen to pick the new character.
+fn check_character_created(
+    mut state: ResMut<ClientState>,
+    mut next_screen: ResMut<NextState<GameScreen>>,
 ) {
-    if *done {
-        return;
-    }
-    // The server loads the character on login. If the client gets LoginSuccess
-    // and the server already has character data, EnterWorld will work immediately.
-    // We check if the client has character info from a previous session.
-    if state.phase == ClientPhase::LoggedIn && state.has_character {
-        crate::plugins::game::send_message(&mut outbox, ClientMessage::EnterWorld);
-        *done = true;
-    }
-}
-
-fn check_enter_world(state: Res<ClientState>, mut next_screen: ResMut<NextState<GameScreen>>) {
-    if state.is_changed() && state.phase == ClientPhase::InWorld {
-        next_screen.set(GameScreen::InGame);
+    if state.character_just_created {
+        state.character_just_created = false;
+        // Re-login to refresh character list (simple approach)
+        // TODO: server could send updated character list instead
+        next_screen.set(GameScreen::CharacterSelect);
     }
 }
 

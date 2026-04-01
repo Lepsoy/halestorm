@@ -17,7 +17,9 @@ pub enum ClientMessage {
         name: String,
         class: PrimaryClass,
     },
-    EnterWorld,
+    SelectCharacter {
+        character_id: u64,
+    },
     MoveIntent {
         direction: Direction,
         tick: Tick,
@@ -31,6 +33,7 @@ pub enum ServerMessage {
     AccountCreated,
     LoginSuccess {
         player_id: PlayerId,
+        characters: Vec<CharacterInfo>,
     },
     LoginFailed {
         reason: String,
@@ -39,6 +42,8 @@ pub enum ServerMessage {
         name: String,
         class: PrimaryClass,
         spawn_position: TilePosition,
+        /// Updated character list after creation.
+        characters: Vec<CharacterInfo>,
     },
     EnterWorld {
         tick: Tick,
@@ -59,6 +64,14 @@ pub enum ServerMessage {
         tick: Tick,
         position: TilePosition,
     },
+}
+
+/// Summary info about a character, sent in login response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CharacterInfo {
+    pub id: u64,
+    pub name: String,
+    pub class: PrimaryClass,
 }
 
 /// State of a single entity as seen in a world snapshot.

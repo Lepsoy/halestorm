@@ -1,11 +1,13 @@
-pub mod login;
 pub mod character_create;
+pub mod character_select;
 pub mod hud;
+pub mod login;
 mod text_input;
 
 use bevy::prelude::*;
 
 use self::character_create::CharacterCreatePlugin;
+use self::character_select::CharacterSelectPlugin;
 use self::hud::HudPlugin;
 use self::login::LoginPlugin;
 
@@ -15,6 +17,7 @@ impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.init_state::<GameScreen>()
             .add_plugins(LoginPlugin)
+            .add_plugins(CharacterSelectPlugin)
             .add_plugins(CharacterCreatePlugin)
             .add_plugins(HudPlugin);
     }
@@ -25,6 +28,7 @@ impl Plugin for UiPlugin {
 pub enum GameScreen {
     #[default]
     Login,
+    CharacterSelect,
     CharacterCreate,
     InGame,
 }
