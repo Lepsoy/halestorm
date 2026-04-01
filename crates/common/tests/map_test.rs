@@ -59,10 +59,10 @@ fn test_map_loads_and_has_expected_structure() {
         std::fs::read_to_string("../../assets/maps/test_map.tmj").expect("test map exists");
     let map = map_loader::parse_tmj(&content).expect("valid map");
 
-    assert_eq!(map.width, 30);
-    assert_eq!(map.height, 20);
+    assert_eq!(map.width, 100);
+    assert_eq!(map.height, 100);
     assert_eq!(map.tile_size, 32);
-    assert_eq!(map.spawn_point, TilePosition::new(15, 10));
+    assert_eq!(map.spawn_point, TilePosition::new(10, 10));
     assert_eq!(map.ground_tiles.len(), (map.width * map.height) as usize);
     assert_eq!(map.wall_tiles.len(), (map.width * map.height) as usize);
 }
@@ -75,18 +75,17 @@ fn test_map_walls_block_correctly() {
 
     // Border walls
     assert!(!map.collision_map.is_walkable(TilePosition::new(0, 0)));
-    assert!(!map.collision_map.is_walkable(TilePosition::new(29, 0)));
-    assert!(!map.collision_map.is_walkable(TilePosition::new(0, 10)));
+    assert!(!map.collision_map.is_walkable(TilePosition::new(99, 0)));
+    assert!(!map.collision_map.is_walkable(TilePosition::new(0, 50)));
 
-    // Interior wall at y=5, x=5..10
-    assert!(!map.collision_map.is_walkable(TilePosition::new(7, 5)));
+    // Town building walls
+    assert!(!map.collision_map.is_walkable(TilePosition::new(3, 3))); // inn corner
 
-    // Open area
+    // Open town area
     assert!(map.collision_map.is_walkable(TilePosition::new(10, 10)));
-    assert!(map.collision_map.is_walkable(TilePosition::new(15, 10))); // spawn
 
-    // Water at y=18,19
-    assert!(!map.collision_map.is_walkable(TilePosition::new(10, 19)));
+    // Lake water blocks
+    assert!(!map.collision_map.is_walkable(TilePosition::new(50, 73)));
 }
 
 #[test]
@@ -103,13 +102,13 @@ fn movement_validated_against_test_map() {
         std::fs::read_to_string("../../assets/maps/test_map.tmj").expect("test map exists");
     let map = map_loader::parse_tmj(&content).expect("valid map");
 
-    // From spawn, moving south should work (open grass)
+    // From spawn, moving south should work (open town area)
     let result = movement::validate_move(map.spawn_point, Direction::South, |pos| {
         map.collision_map.is_walkable(pos)
     });
-    assert_eq!(result, Some(TilePosition::new(15, 11)));
+    assert_eq!(result, Some(TilePosition::new(10, 11)));
 
-    // From top-left open area, moving north into border wall should fail
+    // Moving north into border wall should fail
     let from = TilePosition::new(5, 1);
     let result = movement::validate_move(from, Direction::North, |pos| {
         map.collision_map.is_walkable(pos)

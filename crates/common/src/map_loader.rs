@@ -124,29 +124,29 @@ mod tests {
             std::fs::read_to_string("../../assets/maps/test_map.tmj").expect("test map exists");
         let map = parse_tmj(&content).expect("valid map");
 
-        assert_eq!(map.width, 30);
-        assert_eq!(map.height, 20);
+        assert_eq!(map.width, 100);
+        assert_eq!(map.height, 100);
         assert_eq!(map.tile_size, 32);
-        assert_eq!(map.spawn_point, TilePosition::new(15, 10));
+        assert_eq!(map.spawn_point, TilePosition::new(10, 10));
 
         // Ground layer should have width * height tiles
-        assert_eq!(map.ground_tiles.len(), 600);
+        assert_eq!(map.ground_tiles.len(), 10000);
 
         // Walls should block movement
         assert!(!map.collision_map.is_walkable(TilePosition::new(0, 0))); // border wall
-        assert!(!map.collision_map.is_walkable(TilePosition::new(0, 5))); // left border
+        assert!(!map.collision_map.is_walkable(TilePosition::new(0, 50))); // left border
 
-        // Open grass should be walkable
+        // Town area should be walkable
         assert!(map.collision_map.is_walkable(TilePosition::new(10, 10)));
 
         // Spawn point should be walkable
         assert!(map.collision_map.is_walkable(map.spawn_point));
 
-        // Water should be blocked
-        assert!(!map.collision_map.is_walkable(TilePosition::new(10, 19)));
+        // Lake water should be blocked
+        assert!(!map.collision_map.is_walkable(TilePosition::new(50, 73)));
 
         // Out of bounds should be blocked
         assert!(!map.collision_map.is_walkable(TilePosition::new(-1, 0)));
-        assert!(!map.collision_map.is_walkable(TilePosition::new(30, 0)));
+        assert!(!map.collision_map.is_walkable(TilePosition::new(100, 0)));
     }
 }
