@@ -1,10 +1,16 @@
+use argon2::{
+    Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
+    password_hash::{SaltString, rand_core::OsRng},
+};
 use bevy::prelude::*;
 use halestorm_common::local_transport_plugin::LocalTransportSet;
 use halestorm_common::map::CollisionMap;
 use halestorm_common::protocol::{ClientMessage, EntityState, ServerMessage};
 use halestorm_common::transport::{ConnectionId, MessageInbox, MessageOutbox};
-use halestorm_common::types::{Direction, EntityId, PlayerId, Tick, TilePosition};
+use halestorm_common::types::{Direction, EntityId, PrimaryClass, Tick, TilePosition};
 use std::collections::HashMap;
+
+use super::persistence::Database;
 
 /// Server-side plugin: processes client messages and runs the game simulation.
 pub struct ServerGamePlugin;
@@ -25,17 +31,13 @@ impl Plugin for ServerGamePlugin {
     }
 }
 
-/// Tracks server-side state: accounts, players, entities.
+/// Tracks server-side state: sessions and entities.
 #[derive(Resource, Default)]
 pub struct ServerState {
-    /// username -> hashed password (plain text for now, argon2 later)
-    accounts: HashMap<String, String>,
     /// connection -> authenticated player session
     sessions: HashMap<ConnectionId, PlayerSession>,
     /// next entity id counter
     next_entity_id: u64,
-    /// next player id counter
-    next_player_id: u64,
     /// current server tick
     tick: Tick,
     /// configured spawn point (set from map data)
@@ -44,15 +46,17 @@ pub struct ServerState {
 
 #[allow(dead_code)]
 struct PlayerSession {
-    player_id: PlayerId,
+    player_id: i64,
     username: String,
     character: Option<CharacterData>,
     entity_id: Option<EntityId>,
+    character_db_id: Option<i64>,
 }
 
 #[allow(dead_code)]
 struct CharacterData {
     name: String,
+    class: PrimaryClass,
     position: TilePosition,
     direction: Direction,
     moving: bool,
@@ -64,11 +68,36 @@ impl ServerState {
         self.next_entity_id += 1;
         id
     }
+}
 
-    fn next_player(&mut self) -> PlayerId {
-        let id = PlayerId(self.next_player_id);
-        self.next_player_id += 1;
-        id
+fn hash_password(password: &str) -> Result<String, String> {
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    let hash = argon2
+        .hash_password(password.as_bytes(), &salt)
+        .map_err(|e| format!("Hash failed: {e}"))?;
+    Ok(hash.to_string())
+}
+
+fn verify_password(password: &str, hash: &str) -> bool {
+    let parsed = match PasswordHash::new(hash) {
+        Ok(h) => h,
+        Err(_) => return false,
+    };
+    Argon2::default()
+        .verify_password(password.as_bytes(), &parsed)
+        .is_ok()
+}
+
+fn parse_class(s: &str) -> PrimaryClass {
+    match s {
+        "Champion" => PrimaryClass::Champion,
+        "Ranger" => PrimaryClass::Ranger,
+        "Monk" => PrimaryClass::Monk,
+        "Elementalist" => PrimaryClass::Elementalist,
+        "Illusionist" => PrimaryClass::Illusionist,
+        "Cultist" => PrimaryClass::Cultist,
+        _ => PrimaryClass::Champion,
     }
 }
 
@@ -77,6 +106,7 @@ fn process_messages(
     mut outbox: ResMut<MessageOutbox<ServerMessage>>,
     mut state: ResMut<ServerState>,
     collision_map: Option<Res<CollisionMap>>,
+    db: Option<Res<Database>>,
 ) {
     state.tick = Tick(state.tick.0 + 1);
 
@@ -84,65 +114,143 @@ fn process_messages(
     for (conn, msg) in messages {
         match msg {
             ClientMessage::CreateAccount { username, password } => {
-                if state.accounts.contains_key(&username) {
-                    outbox.push(
-                        conn,
-                        ServerMessage::LoginFailed {
-                            reason: "Username already exists".into(),
-                        },
-                    );
-                } else {
-                    // TODO: hash with argon2
-                    state.accounts.insert(username.clone(), password);
-                    info!("Account created: {username}");
-                    outbox.push(conn, ServerMessage::AccountCreated);
+                let Some(ref db) = db else {
+                    outbox.push(conn, ServerMessage::LoginFailed {
+                        reason: "Database not available".into(),
+                    });
+                    continue;
+                };
+
+                if db.get_account(&username).is_some() {
+                    outbox.push(conn, ServerMessage::LoginFailed {
+                        reason: "Username already exists".into(),
+                    });
+                    continue;
+                }
+
+                match hash_password(&password) {
+                    Ok(hash) => match db.create_account(&username, &hash) {
+                        Ok(_) => {
+                            info!("Account created: {username}");
+                            outbox.push(conn, ServerMessage::AccountCreated);
+                        }
+                        Err(e) => {
+                            outbox.push(conn, ServerMessage::LoginFailed {
+                                reason: format!("Failed to create account: {e}"),
+                            });
+                        }
+                    },
+                    Err(e) => {
+                        outbox.push(conn, ServerMessage::LoginFailed {
+                            reason: format!("Internal error: {e}"),
+                        });
+                    }
                 }
             }
 
             ClientMessage::Login { username, password } => {
-                match state.accounts.get(&username) {
-                    Some(stored) if *stored == password => {
-                        let player_id = state.next_player();
+                let Some(ref db) = db else {
+                    outbox.push(conn, ServerMessage::LoginFailed {
+                        reason: "Database not available".into(),
+                    });
+                    continue;
+                };
+
+                match db.get_account(&username) {
+                    Some(account) if verify_password(&password, &account.password_hash) => {
+                        // Check if account has a character already
+                        let character = db.get_character(account.id).map(|c| {
+                            let class = parse_class(&c.class);
+                            (
+                                c.id,
+                                CharacterData {
+                                    name: c.name,
+                                    class,
+                                    position: TilePosition::new(c.position_x, c.position_y),
+                                    direction: Direction::South,
+                                    moving: false,
+                                },
+                            )
+                        });
+
+                        let (char_db_id, char_data) = match character {
+                            Some((id, data)) => (Some(id), Some(data)),
+                            None => (None, None),
+                        };
+
                         state.sessions.insert(
                             conn,
                             PlayerSession {
-                                player_id,
+                                player_id: account.id,
                                 username: username.clone(),
-                                character: None,
+                                character: char_data,
                                 entity_id: None,
+                                character_db_id: char_db_id,
                             },
                         );
                         info!("Player logged in: {username}");
-                        outbox.push(conn, ServerMessage::LoginSuccess { player_id });
-                    }
-                    _ => {
                         outbox.push(
                             conn,
-                            ServerMessage::LoginFailed {
-                                reason: "Invalid username or password".into(),
+                            ServerMessage::LoginSuccess {
+                                player_id: halestorm_common::types::PlayerId(account.id as u64),
                             },
                         );
+
+                        // If account already has a character, notify client
+                        if let Some(session) = state.sessions.get(&conn)
+                            && let Some(ref character) = session.character
+                        {
+                            outbox.push(
+                                conn,
+                                ServerMessage::CharacterCreated {
+                                    name: character.name.clone(),
+                                    class: character.class,
+                                    spawn_position: character.position,
+                                },
+                            );
+                        }
+                    }
+                    _ => {
+                        outbox.push(conn, ServerMessage::LoginFailed {
+                            reason: "Invalid username or password".into(),
+                        });
                     }
                 }
             }
 
-            ClientMessage::CreateCharacter { name } => {
+            ClientMessage::CreateCharacter { name, class } => {
                 let spawn = state.spawn_point;
+                let Some(ref db) = db else { continue };
                 if let Some(session) = state.sessions.get_mut(&conn) {
-                    session.character = Some(CharacterData {
-                        name: name.clone(),
-                        position: spawn,
-                        direction: Direction::South,
-                        moving: false,
-                    });
-                    info!("Character created: {name}");
-                    outbox.push(
-                        conn,
-                        ServerMessage::CharacterCreated {
-                            name,
-                            spawn_position: spawn,
-                        },
-                    );
+                    match db.create_character(
+                        session.player_id,
+                        &name,
+                        &class.to_string(),
+                        spawn,
+                    ) {
+                        Ok(char_id) => {
+                            session.character_db_id = Some(char_id);
+                            session.character = Some(CharacterData {
+                                name: name.clone(),
+                                class,
+                                position: spawn,
+                                direction: Direction::South,
+                                moving: false,
+                            });
+                            info!("Character created: {name} ({class})");
+                            outbox.push(
+                                conn,
+                                ServerMessage::CharacterCreated {
+                                    name,
+                                    class,
+                                    spawn_position: spawn,
+                                },
+                            );
+                        }
+                        Err(e) => {
+                            warn!("Failed to create character: {e}");
+                        }
+                    }
                 }
             }
 
@@ -152,9 +260,10 @@ fn process_messages(
                     && let Some(ref character) = session.character
                 {
                     let position = character.position;
+                    let class = character.class;
                     session.entity_id = Some(entity_id);
                     info!(
-                        "Player {} entering world at ({}, {})",
+                        "Player {} entering world at ({}, {}) as {class}",
                         session.username, position.x, position.y
                     );
                     outbox.push(
@@ -164,6 +273,7 @@ fn process_messages(
                             entity_id,
                             position,
                             map_id: "test_map".into(),
+                            class,
                         },
                     );
                 }
@@ -208,6 +318,16 @@ fn process_messages(
 
             ClientMessage::Disconnect => {
                 if let Some(session) = state.sessions.remove(&conn) {
+                    // Save position on disconnect
+                    if let (Some(db), Some(char_id), Some(character)) =
+                        (&db, session.character_db_id, &session.character)
+                    {
+                        db.save_character_position(char_id, character.position);
+                        info!(
+                            "Saved position for {}: ({}, {})",
+                            session.username, character.position.x, character.position.y
+                        );
+                    }
                     info!("Player disconnected: {}", session.username);
                 }
             }
@@ -233,6 +353,7 @@ fn broadcast_world_snapshot(
                 position: character.position,
                 direction: character.direction,
                 moving: character.moving,
+                class: character.class,
             })
         })
         .collect();

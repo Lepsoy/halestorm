@@ -97,7 +97,11 @@ fn spawn_player_on_enter(
     };
 
     let world_pos = tile_to_world(position, TILE_SIZE);
-    let texture: Handle<Image> = asset_server.load("sprites/player.png");
+    let sprite_file = state
+        .class
+        .map(|c| c.sprite_file())
+        .unwrap_or("sprites/champion.png");
+    let texture: Handle<Image> = asset_server.load(sprite_file);
     let layout = super::animation::lpc_atlas_layout();
     let layout_handle = texture_atlas_layouts.add(layout);
 

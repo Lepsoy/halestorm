@@ -14,3 +14,4 @@ bevy = { version = "0.18", default-features = false, features = [
     "2d",
     "x11",
 ] }
+strum = { version = "0.27", features = ["derive"] }

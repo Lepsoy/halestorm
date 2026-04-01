@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use halestorm_common::protocol::{ClientMessage, ServerMessage};
 use halestorm_common::transport::{ConnectionId, MessageInbox, MessageOutbox};
-use halestorm_common::types::{EntityId, PlayerId, Tick, TilePosition};
+use halestorm_common::types::{EntityId, PlayerId, PrimaryClass, Tick, TilePosition};
 
 /// Client-side game plugin: processes server messages and manages client state.
 pub struct ClientGamePlugin;
@@ -24,6 +24,10 @@ pub struct ClientState {
     pub position: Option<TilePosition>,
     pub predicted_position: Option<TilePosition>,
     pub last_confirmed_tick: Option<Tick>,
+    /// The player's class (determines sprite)
+    pub class: Option<PrimaryClass>,
+    /// Whether the account already has a character
+    pub has_character: bool,
     /// Last status message for UI display (login errors, etc.)
     pub status_message: Option<String>,
     /// Whether account was just created (for UI feedback)
@@ -63,12 +67,15 @@ fn process_server_messages(
 
             ServerMessage::CharacterCreated {
                 name,
+                class,
                 spawn_position,
             } => {
                 info!(
-                    "Character '{name}' created at ({}, {})",
+                    "Character '{name}' ({class}) created at ({}, {})",
                     spawn_position.x, spawn_position.y
                 );
+                state.class = Some(class);
+                state.has_character = true;
             }
 
             ServerMessage::EnterWorld {
@@ -76,15 +83,17 @@ fn process_server_messages(
                 entity_id,
                 position,
                 map_id,
+                class,
             } => {
                 info!(
-                    "Entered world: map={map_id}, entity={:?}, pos=({}, {}), tick={:?}",
+                    "Entered world: map={map_id}, entity={:?}, pos=({}, {}), tick={:?}, class={class}",
                     entity_id, position.x, position.y, tick
                 );
                 state.entity_id = Some(entity_id);
                 state.position = Some(position);
                 state.predicted_position = Some(position);
                 state.last_confirmed_tick = Some(tick);
+                state.class = Some(class);
                 state.phase = ClientPhase::InWorld;
             }
 

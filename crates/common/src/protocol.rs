@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::types::{Direction, EntityId, PlayerId, Tick, TilePosition};
+use crate::types::{Direction, EntityId, PlayerId, PrimaryClass, Tick, TilePosition};
 
 /// Messages sent from client to server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -15,6 +15,7 @@ pub enum ClientMessage {
     },
     CreateCharacter {
         name: String,
+        class: PrimaryClass,
     },
     EnterWorld,
     MoveIntent {
@@ -36,6 +37,7 @@ pub enum ServerMessage {
     },
     CharacterCreated {
         name: String,
+        class: PrimaryClass,
         spawn_position: TilePosition,
     },
     EnterWorld {
@@ -43,6 +45,7 @@ pub enum ServerMessage {
         entity_id: EntityId,
         position: TilePosition,
         map_id: String,
+        class: PrimaryClass,
     },
     WorldSnapshot {
         tick: Tick,
@@ -65,4 +68,5 @@ pub struct EntityState {
     pub position: TilePosition,
     pub direction: Direction,
     pub moving: bool,
+    pub class: PrimaryClass,
 }

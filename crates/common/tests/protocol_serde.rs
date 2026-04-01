@@ -1,5 +1,7 @@
 use halestorm_common::protocol::*;
 use halestorm_common::types::*;
+#[allow(unused_imports)]
+use halestorm_common::types::PrimaryClass;
 
 fn roundtrip_client(msg: &ClientMessage) -> ClientMessage {
     let bytes = bincode::serialize(msg).expect("serialize");
@@ -66,6 +68,7 @@ fn server_enter_world_roundtrip() {
         entity_id: EntityId(1),
         position: TilePosition::new(10, 20),
         map_id: "test_map".into(),
+        class: PrimaryClass::Monk,
     };
     let decoded = roundtrip_server(&msg);
     match decoded {
@@ -74,11 +77,13 @@ fn server_enter_world_roundtrip() {
             entity_id,
             position,
             map_id,
+            class,
         } => {
             assert_eq!(tick, Tick(100));
             assert_eq!(entity_id, EntityId(1));
             assert_eq!(position, TilePosition::new(10, 20));
             assert_eq!(map_id, "test_map");
+            assert_eq!(class, PrimaryClass::Monk);
         }
         _ => panic!("wrong variant"),
     }
@@ -94,12 +99,14 @@ fn server_world_snapshot_roundtrip() {
                 position: TilePosition::new(5, 5),
                 direction: Direction::South,
                 moving: false,
+                class: PrimaryClass::Champion,
             },
             EntityState {
                 entity_id: EntityId(2),
                 position: TilePosition::new(8, 3),
                 direction: Direction::West,
                 moving: true,
+                class: PrimaryClass::Elementalist,
             },
         ],
     };

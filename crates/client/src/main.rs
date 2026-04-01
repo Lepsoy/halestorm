@@ -3,6 +3,7 @@ mod plugins;
 use bevy::prelude::*;
 use halestorm_common::local_transport_plugin::LocalTransportPlugin;
 use halestorm_server::plugins::game::ServerGamePlugin;
+use halestorm_server::plugins::persistence::PersistencePlugin;
 use halestorm_server::plugins::world::ServerWorldPlugin;
 use plugins::animation::AnimationPlugin;
 use plugins::camera::CameraPlugin;
@@ -36,6 +37,7 @@ fn main() {
         // Map rendering
         .add_plugins(RenderingPlugin)
         // Embedded server (single-player mode)
+        .add_plugins(PersistencePlugin)
         .add_plugins(ServerGamePlugin)
         .add_plugins(ServerWorldPlugin)
         // Local transport (in-process channels)

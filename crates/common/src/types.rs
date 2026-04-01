@@ -27,6 +27,31 @@ pub struct PlayerId(pub u64);
 )]
 pub struct Tick(pub u64);
 
+/// Primary class selection. Determines sprite, skills, and attribute lines.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, strum::EnumIter, strum::Display)]
+pub enum PrimaryClass {
+    Champion,
+    Ranger,
+    Monk,
+    Elementalist,
+    Illusionist,
+    Cultist,
+}
+
+impl PrimaryClass {
+    /// Returns the sprite filename for this class.
+    pub fn sprite_file(self) -> &'static str {
+        match self {
+            PrimaryClass::Champion => "sprites/champion.png",
+            PrimaryClass::Ranger => "sprites/ranger.png",
+            PrimaryClass::Monk => "sprites/monk.png",
+            PrimaryClass::Elementalist => "sprites/elementalist.png",
+            PrimaryClass::Illusionist => "sprites/illusionist.png",
+            PrimaryClass::Cultist => "sprites/cultist.png",
+        }
+    }
+}
+
 /// 8-directional movement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Direction {
