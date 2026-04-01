@@ -41,6 +41,17 @@ pub enum Direction {
 }
 
 impl Direction {
+    /// Whether this is a diagonal direction.
+    pub fn is_diagonal(self) -> bool {
+        matches!(
+            self,
+            Direction::NorthEast
+                | Direction::SouthEast
+                | Direction::SouthWest
+                | Direction::NorthWest
+        )
+    }
+
     /// Returns the (dx, dy) offset for this direction.
     /// Y increases downward (screen space convention).
     pub fn offset(self) -> (i32, i32) {

@@ -32,8 +32,10 @@ pub struct PlayerMovement {
     pub direction: Direction,
     pub progress: f32,
     pub moving: bool,
-    /// Duration of one tile transition in seconds.
+    /// Base duration of one cardinal tile transition in seconds.
     pub move_duration: f32,
+    /// Actual duration of the current move (longer for diagonals).
+    current_duration: f32,
 }
 
 impl Default for PlayerMovement {
@@ -45,6 +47,7 @@ impl Default for PlayerMovement {
             progress: 0.0,
             moving: false,
             move_duration: 0.15,
+            current_duration: 0.15,
         }
     }
 }
@@ -60,6 +63,13 @@ impl PlayerMovement {
         self.direction = direction;
         self.progress = 0.0;
         self.moving = true;
+        // Diagonal moves take sqrt(2) times longer so movement speed
+        // (distance per second) is consistent in all directions.
+        self.current_duration = if direction.is_diagonal() {
+            self.move_duration * std::f32::consts::SQRT_2
+        } else {
+            self.move_duration
+        };
     }
 }
 
@@ -121,7 +131,7 @@ fn update_movement(
     };
 
     if mov.moving {
-        mov.progress += time.delta_secs() / mov.move_duration;
+        mov.progress += time.delta_secs() / mov.current_duration;
 
         if mov.progress >= 1.0 {
             // Transition complete

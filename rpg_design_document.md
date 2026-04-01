@@ -238,7 +238,7 @@ The game world is logically a tile grid. A character's **authoritative position*
 - Server validates: is the target tile walkable? If yes, the character begins transitioning.
 - The transition takes a fixed duration (e.g., 150ms per tile, tunable by movement speed stat).
 - Client interpolates the sprite position between the source and target tile over that duration.
-- **No diagonal penalty** — diagonal movement takes the same time as cardinal movement.
+- **Consistent movement speed** — diagonal movement takes √2 times longer than cardinal movement (Tibia-style), so the character moves at the same speed in all directions. No shortcuts by zigzagging diagonally.
 - Player can queue the next move before the current transition completes, enabling fluid continuous movement.
 
 ### 5.2 Movement Speed
