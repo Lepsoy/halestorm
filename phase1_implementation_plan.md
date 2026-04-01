@@ -1,211 +1,145 @@
-# Halestorm Phase 1 — Implementation Plan
+# Halestorm — Implementation Plan (Updated)
 
-## Context
+## Current State
 
-Halestorm is a 2D tile-based online RPG in Rust/Bevy. No code exists yet — only a design document. Phase 1 delivers the core engine: a player can create an account, create a character, spawn into a tile map, and walk around with server-authoritative movement. Both single-player (embedded server) and multiplayer (quinn networking) modes work.
+Phase 1 milestone achieved and significantly exceeded. The game has:
+- Persistent accounts (SQLite + argon2), multiple characters per account
+- Class selection (6 classes, per-class LPC sprites)
+- Login → Character Select → Character Create → In Game UI flow
+- 100x100 map with town, forest, ruins, lake, dungeon zones
+- WASD + Q/E/Z/C movement with server-authoritative collision
+- Diagonal movement with Tibia-style sqrt(2) timing
+- LPC walk animation system (4-direction, 9 frames)
+- Monsters: goblin spawning, AI (idle/chase/return), entity collision
+- Smooth interpolation for all remote entities
+- Transport abstraction ready for multiplayer (LocalTransport implemented)
+- 29 tests, clippy clean
 
-**Milestone definition:** A playable experience where you can launch the game, create an account/character, spawn on a map, and walk around. Not just technical scaffolding — something that starts and works.
+## What's Next: Combat & Skills Phase
 
----
+### WP-C1: A* Pathfinding for Monsters
+**Goal:** Monsters navigate around obstacles to reach the player instead of walking straight and getting stuck.
 
-## Version Targets
+- Implement A* on the tile grid in `common/src/pathfinding.rs`
+- Account for terrain collision + entity blocking (other monsters)
+- Monsters find paths around walls, through doorways, around each other
+- Monsters surround the player from multiple sides instead of queuing behind each other
+- Path recalculation when target moves or path is blocked
+- Limit path length to leash range
 
-- **Bevy 0.18** (latest stable as of March 2026)
-- **bevy_ecs_tilemap 0.18.1** (Bevy 0.18 compatible)
-- **bevy_ecs_tiled 0.11** (for loading Tiled .tmj maps, Bevy 0.18 compatible)
-- **quinn 0.11.x** (QUIC networking)
-- **serde + bincode** (serialization)
-- **tokio** (async runtime for quinn)
-- **rcgen** (self-signed TLS certs for dev)
-
----
-
-## Architecture: Transport Abstraction
-
-The key architectural decision enabling single-player and multiplayer with shared game logic:
-
-```
-Client Input → ClientMessage → [Transport] → Server MessageInbox
-Server Simulation → ServerMessage → [Transport] → Client MessageInbox
-```
-
-Two transport implementations:
-1. **LocalTransport** — crossbeam channels, in-process. Single-player mode.
-2. **NetworkTransport** — quinn QUIC, over the wire. Multiplayer mode.
-
-Server and client game systems only interact with `MessageInbox<M>` / `MessageOutbox<M>` resources. They never touch networking directly.
+**Test:** Lure a monster around a wall. Multiple monsters should approach from different sides.
 
 ---
 
-## Work Packages
+### WP-C2: Health System + HP Bars
+**Goal:** Players and monsters have visible health. Foundation for damage.
 
-### WP1: Workspace Scaffold + Empty Bevy Apps
-**Goal:** `cargo run --bin client` opens a window. `cargo run --bin server` starts headless and logs. CI passes.
+- Player HP: base from level (start at 100), displayed in HUD
+- Monster HP: already in protocol (EntityState has hp/max_hp)
+- HP bars rendered above all entities (green bar, red background)
+- Player HP/energy bars in bottom HUD panel
+- Server tracks player HP in CharacterData, persists to DB
 
-- Root `Cargo.toml` workspace with `crates/common`, `crates/server`, `crates/client`
-- `common`: serde, bincode deps, placeholder lib.rs
-- `server`: headless Bevy app (MinimalPlugins), logs startup
-- `client`: Bevy app (DefaultPlugins), opens window with colored background
-- `.github/workflows/ci.yml`: `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`
-- `.gitignore`, `rustfmt.toml`
-- `assets/` directory
-
-**Test:** Both binaries run. CI green.
+**Test:** HP bars visible above player and monsters.
 
 ---
 
-### WP2: Shared Types + Protocol
-**Goal:** Core types and message protocol with serialization tests.
+### WP-C3: Targeting + Auto-Attack
+**Goal:** Click a monster to target it. Auto-attack fires at the target.
 
-- `common/src/types.rs` — `TilePosition`, `EntityId`, `PlayerId`, `Direction` (8-dir), `Tick`
-- `common/src/protocol.rs` — Message enums:
-  - `ClientMessage`: `Login { username, password }`, `CreateAccount { username, password }`, `CreateCharacter { name }`, `MoveIntent { direction, tick }`, `Disconnect`
-  - `ServerMessage`: `LoginSuccess { player_id }`, `LoginFailed { reason }`, `AccountCreated`, `CharacterCreated { character_id, spawn_position }`, `EnterWorld { tick, player_entity, position, map_id }`, `WorldSnapshot { tick, entities }`, `MoveConfirm { tick, position }`, `MoveReject { tick, position }`
-  - `EntityState`: `entity_id, position, direction, move_state, sprite_id`
-- `common/src/movement.rs` — Pure validation: `validate_move(from, direction, is_walkable) -> Option<TilePosition>`
-- Unit tests: serde round-trips, movement validation
+- Click-to-target: left click on a monster selects it as target
+- Target nameplate: show target's name, HP bar, level in HUD
+- Target highlight: visual indicator on selected entity
+- Auto-attack: if target is in melee range (adjacent tile), deal damage automatically on a timer (~1.5s)
+- Server-side damage calculation: attack power vs defense
+- Monster death: remove entity, drop to 0 HP, respawn after timer
+- Player death: lose blessings (future), teleport to spawn
 
-**Test:** `cargo test -p common` passes.
+**Protocol additions:**
+- `ClientMessage::SetTarget { entity_id }`
+- `ClientMessage::AutoAttack`
+- `ServerMessage::DamageDealt { source, target, amount }`
+- `ServerMessage::EntityDied { entity_id }`
+- `ServerMessage::PlayerDied`
 
----
-
-### WP3: Transport Abstraction + Local Transport
-**Goal:** In-memory message passing between server and client plugins in one Bevy app.
-
-- `common/src/transport.rs` — `MessageInbox<M>`, `MessageOutbox<M>` resources, `ConnectionId`
-- `common/src/local_transport.rs` — `LocalTransportPlugin`: crossbeam channels, drains each frame
-- `server/src/plugin.rs` — `ServerPlugin`: registers FixedUpdate at 20Hz, reads inbox, writes outbox. Handles Login/CreateAccount/CreateCharacter/MoveIntent.
-- `client/src/plugin.rs` — `ClientPlugin`: sends messages, reads responses
-- Client main.rs adds both ServerPlugin + ClientPlugin + LocalTransportPlugin for single-player
-
-**Test:** Client sends Login, server responds. All in one process, no networking.
+**Test:** Click goblin, auto-attack kills it. Goblin respawns after a few seconds.
 
 ---
 
-### WP4: Test Map + Tilemap Rendering
-**Goal:** A Tiled map renders in the client window.
+### WP-C4: Monster Combat AI
+**Goal:** Monsters fight back. Getting surrounded is dangerous.
 
-- Download LPC terrain tileset → `assets/sprites/terrain.png`
-- Create test map in Tiled (30x20, 32x32 tiles): ground layer (grass/dirt/paths), collision layer (walls/trees), spawn point object
-- Export as `assets/maps/test_map.tmj`
-- `client/src/plugins/rendering.rs` — `RenderingPlugin`: loads tilemap via bevy_ecs_tiled, sets up layers
-- `client/src/plugins/camera.rs` — `CameraPlugin`: 2D camera, appropriate zoom for 32px tiles
-- `common/src/map.rs` — `CollisionMap` (HashSet<TilePosition> of blocked tiles), shared between client and server
+- Monsters deal damage to adjacent players on a timer
+- Aggro table: monsters prioritize the player who hit them
+- Multiple monsters can attack the same player simultaneously
+- Monsters that can't reach melee range try to reposition (uses A* from WP-C1)
+- Combat logging: damage numbers shown briefly above entities
 
-**Test:** `cargo run --bin client` shows the tilemap. Collision data loaded.
-
----
-
-### WP5: Account/Character Creation + Walking Around (Single-Player)
-**Goal: THE MILESTONE.** Launch the game → create account → create character → spawn on map → walk around.
-
-**Server-side (plugin.rs):**
-- Simple account storage (in-memory HashMap for now, SQLite later)
-  - `CreateAccount` → hash password (argon2), store, respond `AccountCreated`
-  - `Login` → verify password, respond `LoginSuccess` or `LoginFailed`
-  - `CreateCharacter` → create character record with name, assign spawn position from map data, respond `CharacterCreated`
-  - After character selection → send `EnterWorld` with position and map
-- Movement processing: validate MoveIntent against CollisionMap, send Confirm/Reject
-- Entity collision: track occupied tiles, enforce blocking rules (players pass players, block monsters)
-- 20Hz WorldSnapshot broadcast
-
-**Client-side:**
-- `client/src/plugins/input.rs` — WASD movement, sends MoveIntent + client-side prediction
-- `client/src/plugins/rendering.rs` — Spawn player sprite (LPC 64x64), Y-sorting, smooth tile-to-tile interpolation, walk animation, camera follow
-- `client/src/plugins/ui/` — Minimal UI flow:
-  - **Login screen**: username + password fields, "Login" and "Create Account" buttons
-  - **Character creation**: name field, "Create" button (minimal — no class selection yet, just getting in)
-  - **In-game**: player sprite on map, basic position debug text
-- Bevy states: `MainMenu` → `Login` → `CharacterSelect` → `InGame`
-- Move queueing for fluid continuous movement
-- Client prediction + reconciliation on MoveConfirm/MoveReject
-
-**Assets:**
-- LPC base character spritesheet → `assets/sprites/player.png`
-- `assets/CREDITS.md` for LPC attribution
-
-**Test:** Launch client. Create account "test"/"test". Create character "Hero". Spawn on grass map. Walk around with WASD, smooth movement, can't walk through walls/trees. Camera follows.
+**Test:** Walk into a group of goblins. They surround you and deal damage. You can die.
 
 ---
 
-### WP6: Quinn Networking (Multiplayer)
-**Goal:** Standalone server accepts network connections. Clients connect over QUIC.
+### WP-C5: Energy System + Skill Bar
+**Goal:** Energy resource, skill bar UI, first skills.
 
-- `server/src/plugins/network.rs` — `ServerNetworkPlugin`:
-  - Tokio runtime in background thread
-  - Quinn endpoint on `0.0.0.0:4433`
-  - Self-signed TLS cert via rcgen
-  - Bridge: tokio task ↔ crossbeam channels ↔ Bevy MessageInbox/Outbox
-  - Reliable streams for auth/handshake, unreliable datagrams for position updates
-- `client/src/plugins/network.rs` — `ClientNetworkPlugin`:
-  - Mirror architecture, connects to server ip:port
-  - Accept any cert in dev mode
-- Client launch modes:
-  - `--singleplayer` or default: LocalTransportPlugin (embed server)
-  - `--connect <ip:port>`: ClientNetworkPlugin
-- Message framing: 4-byte length prefix + bincode for reliable, raw bincode for datagrams
+- Energy: pool (40-80 by class), fast regen (~3-4/sec), displayed in HUD
+- Skill bar: 7 slots + 1 ultimate slot, bound to 1-8 keys
+- Skill data: loaded from RON/JSON data files
+- Skill execution: client sends SkillUse, server validates (energy, cooldown, range), applies effect
+- Cast bars: visible during cast time, interruptible by movement
+- Cooldown overlays on skill bar icons
 
-**Test:** Server in terminal A. Client with `--connect 127.0.0.1:4433` in terminal B. Login, create character, walk around — same experience as single-player but over the network.
+**First skills to implement (2 per class starter):**
+- Champion: Cleave (melee AoE), War Cry (party buff)
+- Monk: Palm Strike (melee), Healing Touch (heal)
+- Elementalist: Fireball (ranged), Lightning Bolt (ranged)
+
+**Test:** Press skill key, energy drains, cooldown starts, damage/healing applied.
 
 ---
 
-### WP7: Multiple Players + Interpolation
-**Goal:** Multiple connected players see each other with smooth interpolated movement.
+### WP-C6: Conditions & Death Consequences
+**Goal:** Buffs/debuffs, death penalty system.
 
-- Server: WorldSnapshot includes all entity positions, sent to each client at 20Hz
-- Client: for remote entities (not local player):
-  - Buffer two most recent server positions
-  - Interpolate between them each frame (render one tick behind)
-  - Spawn/despawn remote sprites as they appear/disappear
-- Y-sorting works correctly between multiple players and map objects
+- Conditions: bleeding, burning, regeneration, might, etc.
+- Condition icons displayed below HP bars
+- Death: teleport to town spawn, lose exploration bonuses (future)
+- Monster respawning with configurable timer per spawn point
+- Out-of-combat HP regeneration
 
-**Test:** Two clients connected to same server. Player A walks, player B sees smooth movement. Both Y-sorted correctly.
-
----
-
-### WP8: Polish + Edge Cases
-**Goal:** Harden everything. Handle edge cases. Document.
-
-- Disconnect handling (server cleanup, client returns to login)
-- Reject duplicate usernames, handle malformed messages
-- Connection status text overlay (connecting/connected/disconnected)
-- Debug overlay (F3): tile position, server tick, RTT, player count
-- Move queue edge cases: rapid direction changes, diagonal movement
-- Comprehensive unit tests for common crate
-- Integration test: LocalTransport, send movement commands, assert state
-- README.md: build instructions, how to run single-player, how to run multiplayer, asset setup
-
-**Test:** All tests pass. Both modes work. Edge cases don't panic. README is complete.
+**Test:** Get hit by burning attack, see DoT ticking. Die, respawn in town.
 
 ---
 
-## Dependency Graph
+## Future Work (After Combat Phase)
 
-```
-WP1 (scaffold)
- └─ WP2 (types/protocol)
-     └─ WP3 (transport + local)
-         ├─ WP4 (tilemap rendering)
-         │   └─ WP5 (THE MILESTONE: account + character + walking)
-         │       ├─ WP6 (quinn networking)
-         │       │   └─ WP7 (multiplayer + interpolation)
-         │       │       └─ WP8 (polish)
-         │       └────────────┘
-```
+### Multiplayer (WP6-WP8 from original plan)
+- Quinn QUIC networking
+- Multiple players seeing each other
+- Standalone server binary
 
-## Key Risks
+### World Expansion
+- Multi-floor elevation (Tibia-style stairs)
+- More zones, NPCs, quests
+- Secondary class system
+- More monster types and boss encounters
 
-| Risk | Mitigation |
-|------|-----------|
-| bevy_ecs_tiled incompatible with target Bevy version | Fall back to custom .tmj parser — Tiled JSON is straightforward |
-| Quinn datagram API complexity | Start with reliable streams only, add datagrams as optimization |
-| Y-sorting with tilemap layers | Test early in WP5, may need custom z-calculation to interleave entities with tile layers |
-| Bevy FixedUpdate timing with interpolation | Use Bevy's `Time<Fixed>` for server, `Time<Virtual>` for client interpolation |
+### Polish
+- Audio (ambient, SFX, music)
+- Lighting system
+- Chat system
+- Debug overlay
+- README and documentation
 
 ## Critical Files
 
-- `crates/common/src/transport.rs` — architectural linchpin for single-player/multiplayer
 - `crates/common/src/protocol.rs` — client/server message contract
-- `crates/common/src/movement.rs` — shared movement validation (prediction + authority)
-- `crates/server/src/plugin.rs` — server game loop (works embedded and standalone)
-- `crates/client/src/plugins/rendering.rs` — tilemap, sprites, Y-sorting, interpolation
+- `crates/common/src/movement.rs` — shared movement validation
+- `crates/common/src/monster.rs` — monster type definitions and stats
+- `crates/server/src/plugins/game.rs` — server game loop, combat resolution
+- `crates/server/src/plugins/monsters.rs` — monster AI and spawning
+- `crates/server/src/plugins/persistence.rs` — SQLite database
+- `crates/client/src/plugins/entities.rs` — remote entity rendering + interpolation
+- `crates/client/src/plugins/animation.rs` — LPC sprite animation
+- `crates/client/src/plugins/player.rs` — local player movement + rendering
+- `crates/client/src/plugins/input.rs` — WASD + skill input
