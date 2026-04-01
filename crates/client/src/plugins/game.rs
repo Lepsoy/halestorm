@@ -24,6 +24,10 @@ pub struct ClientState {
     pub position: Option<TilePosition>,
     pub predicted_position: Option<TilePosition>,
     pub last_confirmed_tick: Option<Tick>,
+    /// Last status message for UI display (login errors, etc.)
+    pub status_message: Option<String>,
+    /// Whether account was just created (for UI feedback)
+    pub account_created: bool,
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -42,6 +46,8 @@ fn process_server_messages(
         match msg {
             ServerMessage::AccountCreated => {
                 info!("Account created successfully");
+                state.account_created = true;
+                state.status_message = Some("Account created! You can now log in.".into());
             }
 
             ServerMessage::LoginSuccess { player_id } => {
@@ -52,6 +58,7 @@ fn process_server_messages(
 
             ServerMessage::LoginFailed { reason } => {
                 warn!("Login failed: {reason}");
+                state.status_message = Some(reason);
             }
 
             ServerMessage::CharacterCreated {

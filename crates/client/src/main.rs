@@ -2,8 +2,6 @@ mod plugins;
 
 use bevy::prelude::*;
 use halestorm_common::local_transport_plugin::LocalTransportPlugin;
-use halestorm_common::protocol::ClientMessage;
-use halestorm_common::transport::MessageOutbox;
 use halestorm_server::plugins::game::ServerGamePlugin;
 use halestorm_server::plugins::world::ServerWorldPlugin;
 use plugins::camera::CameraPlugin;
@@ -11,6 +9,7 @@ use plugins::game::ClientGamePlugin;
 use plugins::input::InputPlugin;
 use plugins::player::PlayerPlugin;
 use plugins::rendering::RenderingPlugin;
+use plugins::ui::UiPlugin;
 
 fn main() {
     App::new()
@@ -38,59 +37,8 @@ fn main() {
         .add_plugins(PlayerPlugin)
         // WASD input
         .add_plugins(InputPlugin)
-        // Startup: auto-login for testing
+        // UI screens (login, character create, HUD)
+        .add_plugins(UiPlugin)
         .add_systems(Startup, || info!("Halestorm client starting (single-player mode)"))
-        .add_systems(Update, auto_login)
         .run();
-}
-
-/// Temporary auto-login sequence for testing the transport.
-/// Creates an account, logs in, creates a character, and enters the world.
-fn auto_login(
-    mut outbox: ResMut<MessageOutbox<ClientMessage>>,
-    state: Res<plugins::game::ClientState>,
-    mut step: Local<u8>,
-) {
-    use plugins::game::{send_message, ClientPhase};
-
-    match *step {
-        0 => {
-            send_message(
-                &mut outbox,
-                ClientMessage::CreateAccount {
-                    username: "test".into(),
-                    password: "test".into(),
-                },
-            );
-            *step = 1;
-        }
-        1 => {
-            send_message(
-                &mut outbox,
-                ClientMessage::Login {
-                    username: "test".into(),
-                    password: "test".into(),
-                },
-            );
-            *step = 2;
-        }
-        2 if state.phase == ClientPhase::LoggedIn => {
-            send_message(
-                &mut outbox,
-                ClientMessage::CreateCharacter {
-                    name: "Hero".into(),
-                },
-            );
-            *step = 3;
-        }
-        3 if state.phase == ClientPhase::LoggedIn => {
-            send_message(&mut outbox, ClientMessage::EnterWorld);
-            *step = 4;
-        }
-        4 if state.phase == ClientPhase::InWorld => {
-            info!("In world! Position: {:?}", state.position);
-            *step = 5; // Done, stop sending
-        }
-        _ => {}
-    }
 }
