@@ -15,7 +15,10 @@ impl Plugin for ServerWorldPlugin {
 }
 
 fn load_map_data(mut commands: Commands, mut server_state: ResMut<ServerState>) {
-    let map_path = std::path::Path::new("assets/maps/test_map.tmj");
+    let map_path = std::path::Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../assets/maps/test_map.tmj"
+    ));
     let parsed = map_loader::load_tmj(map_path).expect("Failed to load map — server cannot start");
 
     info!(

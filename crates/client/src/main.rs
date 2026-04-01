@@ -13,14 +13,22 @@ use plugins::ui::UiPlugin;
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Halestorm".to_string(),
-                resolution: (1280u32, 720u32).into(),
-                ..default()
-            }),
-            ..default()
-        }))
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: "Halestorm".to_string(),
+                        resolution: (1280u32, 720u32).into(),
+                        ..default()
+                    }),
+                    ..default()
+                })
+                .set(AssetPlugin {
+                    // Assets are at the workspace root, not next to the client crate
+                    file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets").to_string(),
+                    ..default()
+                }),
+        )
         .insert_resource(ClearColor(Color::srgb(0.1, 0.1, 0.15)))
         // Camera
         .add_plugins(CameraPlugin)

@@ -27,7 +27,10 @@ fn load_map(
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
 ) {
     // Load the map for rendering (server loads its own copy for game logic)
-    let map_path = std::path::Path::new("assets/maps/test_map.tmj");
+    let map_path = std::path::Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../assets/maps/test_map.tmj"
+    ));
     let parsed = halestorm_common::map_loader::load_tmj(map_path)
         .expect("Failed to load map — cannot start without it");
 
