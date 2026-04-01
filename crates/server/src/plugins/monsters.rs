@@ -2,7 +2,7 @@ use bevy::prelude::*;
 use halestorm_common::map::CollisionMap;
 use halestorm_common::monster::MonsterKind;
 use halestorm_common::types::{Direction, EntityId, TilePosition};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::game::ServerState;
 
@@ -63,8 +63,6 @@ pub fn try_spawn_monsters(
 
     let collision_map = collision_map.unwrap();
 
-    // Spawn goblins at each monster spawn point from the map
-    // For now, spawn 3 goblins near each spawn point
     let spawn_points = vec![
         TilePosition::new(65, 15),
         TilePosition::new(75, 30),
@@ -115,21 +113,26 @@ fn update_monster_ai(
         return;
     };
 
-    // Collect player positions for aggro checks
+    // Collect player positions for aggro and collision
     let player_positions: Vec<TilePosition> = server_state
         .sessions
         .values()
         .filter_map(|s| s.character.as_ref().map(|c| c.position))
         .collect();
 
-    let monsters: Vec<EntityId> = monster_state.monsters.keys().copied().collect();
+    // Build occupied tile set: players + all monsters
+    let mut occupied: HashSet<TilePosition> = player_positions.iter().copied().collect();
+    for monster in monster_state.monsters.values() {
+        occupied.insert(monster.position);
+    }
 
-    for id in monsters {
+    let monster_ids: Vec<EntityId> = monster_state.monsters.keys().copied().collect();
+
+    for id in monster_ids {
         let Some(monster) = monster_state.monsters.get_mut(&id) else {
             continue;
         };
 
-        // Cooldown between moves
         if monster.move_cooldown > 0 {
             monster.move_cooldown -= 1;
             continue;
@@ -142,20 +145,26 @@ fn update_monster_ai(
         match &monster.ai {
             AiState::Idle { wander_timer } => {
                 // Check for nearby players
-                if let Some(&target) = find_nearest_player(monster.position, &player_positions, aggro_range) {
+                if let Some(&target) =
+                    find_nearest_player(monster.position, &player_positions, aggro_range)
+                {
                     monster.ai = AiState::Chasing { target_pos: target };
                     continue;
                 }
 
-                // Wander randomly
                 let timer = *wander_timer;
                 if timer == 0 {
                     let dir = random_direction();
-                    let target = halestorm_common::movement::compute_target(monster.position, dir);
-                    if collision_map.is_walkable(target) && distance(target, monster.spawn_position) < leash_range {
+                    let target =
+                        halestorm_common::movement::compute_target(monster.position, dir);
+                    if can_move_to(target, monster.position, &collision_map, &occupied)
+                        && distance(target, monster.spawn_position) < leash_range
+                    {
+                        occupied.remove(&monster.position);
                         monster.position = target;
+                        occupied.insert(target);
                         monster.direction = dir;
-                        monster.move_cooldown = speed * 2; // Wander slowly
+                        monster.move_cooldown = speed * 2;
                     }
                     monster.ai = AiState::Idle {
                         wander_timer: rand_range(10, 40),
@@ -168,20 +177,26 @@ fn update_monster_ai(
             }
 
             AiState::Chasing { .. } => {
-
-                // Check leash
                 if distance(monster.position, monster.spawn_position) > leash_range {
                     monster.ai = AiState::Returning;
                     continue;
                 }
 
-                // Update target to nearest player
-                if let Some(&new_target) = find_nearest_player(monster.position, &player_positions, aggro_range + 2) {
-                    // Move toward player
-                    if let Some(dir) = direction_toward(monster.position, new_target) {
-                        let next = halestorm_common::movement::compute_target(monster.position, dir);
-                        if collision_map.is_walkable(next) {
+                if let Some(&new_target) =
+                    find_nearest_player(monster.position, &player_positions, aggro_range + 2)
+                {
+                    // Stop adjacent to player (melee range) — don't walk on top of them
+                    if distance(monster.position, new_target) > 1
+                        && let Some(dir) = direction_toward(monster.position, new_target)
+                    {
+                        let next = halestorm_common::movement::compute_target(
+                            monster.position,
+                            dir,
+                        );
+                        if can_move_to(next, monster.position, &collision_map, &occupied) {
+                            occupied.remove(&monster.position);
                             monster.position = next;
+                            occupied.insert(next);
                             monster.direction = dir;
                         }
                     }
@@ -190,7 +205,6 @@ fn update_monster_ai(
                     };
                     monster.move_cooldown = speed;
                 } else {
-                    // Lost target, return
                     monster.ai = AiState::Returning;
                 }
             }
@@ -202,9 +216,12 @@ fn update_monster_ai(
                 }
 
                 if let Some(dir) = direction_toward(monster.position, monster.spawn_position) {
-                    let next = halestorm_common::movement::compute_target(monster.position, dir);
-                    if collision_map.is_walkable(next) {
+                    let next =
+                        halestorm_common::movement::compute_target(monster.position, dir);
+                    if can_move_to(next, monster.position, &collision_map, &occupied) {
+                        occupied.remove(&monster.position);
                         monster.position = next;
+                        occupied.insert(next);
                         monster.direction = dir;
                     }
                 }
@@ -212,6 +229,23 @@ fn update_monster_ai(
             }
         }
     }
+}
+
+/// Check if a tile is free: walkable terrain and not occupied by another entity.
+fn can_move_to(
+    target: TilePosition,
+    current: TilePosition,
+    collision_map: &CollisionMap,
+    occupied: &HashSet<TilePosition>,
+) -> bool {
+    if !collision_map.is_walkable(target) {
+        return false;
+    }
+    // Occupied by another entity (not ourselves)
+    if target != current && occupied.contains(&target) {
+        return false;
+    }
+    true
 }
 
 fn find_nearest_player(
@@ -226,7 +260,6 @@ fn find_nearest_player(
 }
 
 fn distance(a: TilePosition, b: TilePosition) -> i32 {
-    // Chebyshev distance (max of dx, dy) — matches tile movement
     (a.x - b.x).abs().max((a.y - b.y).abs())
 }
 
@@ -248,14 +281,19 @@ fn direction_toward(from: TilePosition, to: TilePosition) -> Option<Direction> {
 
 fn random_direction() -> Direction {
     let dirs = [
-        Direction::North, Direction::NorthEast, Direction::East, Direction::SouthEast,
-        Direction::South, Direction::SouthWest, Direction::West, Direction::NorthWest,
+        Direction::North,
+        Direction::NorthEast,
+        Direction::East,
+        Direction::SouthEast,
+        Direction::South,
+        Direction::SouthWest,
+        Direction::West,
+        Direction::NorthWest,
     ];
     dirs[rand_range(0, 7) as usize]
 }
 
 fn rand_range(min: u32, max: u32) -> u32 {
-    // Simple deterministic-ish random using system time
     let t = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()

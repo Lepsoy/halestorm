@@ -39,8 +39,8 @@ impl MonsterKind {
 
     pub fn move_speed_ticks(self) -> u32 {
         match self {
-            // Moves every N server ticks (20 ticks/sec, so 4 = every 200ms)
-            MonsterKind::Goblin => 4,
+            // Moves every N server ticks (20 ticks/sec, so 6 = every 300ms)
+            MonsterKind::Goblin => 6,
         }
     }
 }
