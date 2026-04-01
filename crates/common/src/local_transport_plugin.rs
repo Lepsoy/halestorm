@@ -6,19 +6,43 @@ use crate::transport::{MessageInbox, MessageOutbox};
 
 /// Bevy plugin that wires up in-process local transport between
 /// an embedded server and client running in the same app.
+///
+/// System ordering within FixedUpdate:
+///   flush_client_to_server → [server processes] → flush_server_to_client
+///
+/// This ensures messages flow within a single tick with no extra latency.
 pub struct LocalTransportPlugin;
+
+/// System set for local transport ordering.
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub enum LocalTransportSet {
+    /// Flush client messages to server inbox. Runs before server systems.
+    ClientToServer,
+    /// Flush server messages to client inbox. Runs after server systems.
+    ServerToClient,
+}
 
 impl Plugin for LocalTransportPlugin {
     fn build(&self, app: &mut App) {
         let channels = LocalChannels::new();
         app.insert_resource(LocalTransportChannels(channels))
-            // Client-side inbox/outbox for ServerMessage/ClientMessage
             .init_resource::<MessageInbox<ServerMessage>>()
             .init_resource::<MessageOutbox<ClientMessage>>()
-            // Transport systems: run after server fixed update, before client systems
+            .configure_sets(
+                FixedUpdate,
+                (
+                    LocalTransportSet::ClientToServer,
+                    LocalTransportSet::ServerToClient,
+                )
+                    .chain(),
+            )
             .add_systems(
-                Update,
-                (flush_client_to_server, flush_server_to_client).chain(),
+                FixedUpdate,
+                flush_client_to_server.in_set(LocalTransportSet::ClientToServer),
+            )
+            .add_systems(
+                FixedUpdate,
+                flush_server_to_client.in_set(LocalTransportSet::ServerToClient),
             );
     }
 }

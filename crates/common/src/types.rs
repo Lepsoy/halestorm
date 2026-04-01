@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// A position on the tile grid.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct TilePosition {
     pub x: i32,
     pub y: i32,

@@ -1,7 +1,9 @@
 use bevy::prelude::*;
-use halestorm_common::protocol::{ClientMessage, ServerMessage};
+use halestorm_common::local_transport_plugin::LocalTransportSet;
+use halestorm_common::map::CollisionMap;
+use halestorm_common::protocol::{ClientMessage, EntityState, ServerMessage};
 use halestorm_common::transport::{ConnectionId, MessageInbox, MessageOutbox};
-use halestorm_common::types::{EntityId, PlayerId, Tick, TilePosition};
+use halestorm_common::types::{Direction, EntityId, PlayerId, Tick, TilePosition};
 use std::collections::HashMap;
 
 /// Server-side plugin: processes client messages and runs the game simulation.
@@ -13,33 +15,47 @@ impl Plugin for ServerGamePlugin {
             .init_resource::<MessageOutbox<ServerMessage>>()
             .init_resource::<ServerState>()
             .insert_resource(Time::<Fixed>::from_seconds(1.0 / 20.0))
-            .add_systems(FixedUpdate, process_messages);
+            .add_systems(
+                FixedUpdate,
+                (process_messages, broadcast_world_snapshot)
+                    .chain()
+                    .after(LocalTransportSet::ClientToServer)
+                    .before(LocalTransportSet::ServerToClient),
+            );
     }
 }
 
 /// Tracks server-side state: accounts, players, entities.
 #[derive(Resource, Default)]
 pub struct ServerState {
-    /// username -> hashed password (plain text for now, argon2 in WP5)
+    /// username -> hashed password (plain text for now, argon2 later)
     accounts: HashMap<String, String>,
-    /// connection -> authenticated player
+    /// connection -> authenticated player session
     sessions: HashMap<ConnectionId, PlayerSession>,
     /// next entity id counter
     next_entity_id: u64,
+    /// next player id counter
+    next_player_id: u64,
     /// current server tick
     tick: Tick,
+    /// configured spawn point (set from map data)
+    pub spawn_point: TilePosition,
 }
 
+#[allow(dead_code)]
 struct PlayerSession {
-    _player_id: PlayerId,
+    player_id: PlayerId,
     username: String,
     character: Option<CharacterData>,
     entity_id: Option<EntityId>,
 }
 
+#[allow(dead_code)]
 struct CharacterData {
-    _name: String,
+    name: String,
     position: TilePosition,
+    direction: Direction,
+    moving: bool,
 }
 
 impl ServerState {
@@ -48,12 +64,19 @@ impl ServerState {
         self.next_entity_id += 1;
         id
     }
+
+    fn next_player(&mut self) -> PlayerId {
+        let id = PlayerId(self.next_player_id);
+        self.next_player_id += 1;
+        id
+    }
 }
 
 fn process_messages(
     mut inbox: ResMut<MessageInbox<ClientMessage>>,
     mut outbox: ResMut<MessageOutbox<ServerMessage>>,
     mut state: ResMut<ServerState>,
+    collision_map: Option<Res<CollisionMap>>,
 ) {
     state.tick = Tick(state.tick.0 + 1);
 
@@ -69,7 +92,7 @@ fn process_messages(
                         },
                     );
                 } else {
-                    // TODO: hash with argon2 in WP5
+                    // TODO: hash with argon2
                     state.accounts.insert(username.clone(), password);
                     info!("Account created: {username}");
                     outbox.push(conn, ServerMessage::AccountCreated);
@@ -79,11 +102,11 @@ fn process_messages(
             ClientMessage::Login { username, password } => {
                 match state.accounts.get(&username) {
                     Some(stored) if *stored == password => {
-                        let player_id = PlayerId(conn.0);
+                        let player_id = state.next_player();
                         state.sessions.insert(
                             conn,
                             PlayerSession {
-                                _player_id: player_id,
+                                player_id,
                                 username: username.clone(),
                                 character: None,
                                 entity_id: None,
@@ -104,11 +127,13 @@ fn process_messages(
             }
 
             ClientMessage::CreateCharacter { name } => {
+                let spawn = state.spawn_point;
                 if let Some(session) = state.sessions.get_mut(&conn) {
-                    let spawn = TilePosition::new(15, 10);
                     session.character = Some(CharacterData {
-                        _name: name.clone(),
+                        name: name.clone(),
                         position: spawn,
+                        direction: Direction::South,
+                        moving: false,
                     });
                     info!("Character created: {name}");
                     outbox.push(
@@ -152,15 +177,32 @@ fn process_messages(
                         character.position,
                         direction,
                     );
-                    // TODO: validate against collision map in WP4/5
-                    character.position = target;
-                    outbox.push(
-                        conn,
-                        ServerMessage::MoveConfirm {
-                            tick,
-                            position: target,
-                        },
-                    );
+
+                    let walkable = collision_map
+                        .as_ref()
+                        .map(|cm| cm.is_walkable(target))
+                        .unwrap_or(true);
+
+                    if walkable {
+                        character.position = target;
+                        character.direction = direction;
+                        character.moving = true;
+                        outbox.push(
+                            conn,
+                            ServerMessage::MoveConfirm {
+                                tick,
+                                position: target,
+                            },
+                        );
+                    } else {
+                        outbox.push(
+                            conn,
+                            ServerMessage::MoveReject {
+                                tick,
+                                position: character.position,
+                            },
+                        );
+                    }
                 }
             }
 
@@ -171,4 +213,36 @@ fn process_messages(
             }
         }
     }
+}
+
+fn broadcast_world_snapshot(
+    mut outbox: ResMut<MessageOutbox<ServerMessage>>,
+    state: Res<ServerState>,
+) {
+    if state.sessions.is_empty() {
+        return;
+    }
+
+    let entities: Vec<EntityState> = state
+        .sessions
+        .values()
+        .filter_map(|session| {
+            let character = session.character.as_ref()?;
+            Some(EntityState {
+                entity_id: session.entity_id?,
+                position: character.position,
+                direction: character.direction,
+                moving: character.moving,
+            })
+        })
+        .collect();
+
+    let connections: Vec<ConnectionId> = state.sessions.keys().copied().collect();
+    outbox.broadcast(
+        &connections,
+        ServerMessage::WorldSnapshot {
+            tick: state.tick,
+            entities,
+        },
+    );
 }
