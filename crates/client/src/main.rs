@@ -8,6 +8,8 @@ use halestorm_server::plugins::game::ServerGamePlugin;
 use halestorm_server::plugins::world::ServerWorldPlugin;
 use plugins::camera::CameraPlugin;
 use plugins::game::ClientGamePlugin;
+use plugins::input::InputPlugin;
+use plugins::player::PlayerPlugin;
 use plugins::rendering::RenderingPlugin;
 
 fn main() {
@@ -32,6 +34,10 @@ fn main() {
         .add_plugins(LocalTransportPlugin)
         // Client game logic
         .add_plugins(ClientGamePlugin)
+        // Player sprite and movement interpolation
+        .add_plugins(PlayerPlugin)
+        // WASD input
+        .add_plugins(InputPlugin)
         // Startup: auto-login for testing
         .add_systems(Startup, || info!("Halestorm client starting (single-player mode)"))
         .add_systems(Update, auto_login)

@@ -102,7 +102,6 @@ fn load_map(
 }
 
 /// Convert a TilePosition to world coordinates.
-#[allow(dead_code)]
 pub fn tile_to_world(pos: TilePosition, tile_size: f32) -> Vec2 {
     Vec2::new(pos.x as f32 * tile_size, -(pos.y as f32) * tile_size)
 }
