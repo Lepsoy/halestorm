@@ -1,3 +1,4 @@
+pub mod animation;
 pub mod camera;
 pub mod game;
 pub mod input;

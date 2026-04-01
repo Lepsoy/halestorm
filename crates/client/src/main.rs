@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use halestorm_common::local_transport_plugin::LocalTransportPlugin;
 use halestorm_server::plugins::game::ServerGamePlugin;
 use halestorm_server::plugins::world::ServerWorldPlugin;
+use plugins::animation::AnimationPlugin;
 use plugins::camera::CameraPlugin;
 use plugins::game::ClientGamePlugin;
 use plugins::input::InputPlugin;
@@ -45,6 +46,8 @@ fn main() {
         .add_plugins(PlayerPlugin)
         // WASD input
         .add_plugins(InputPlugin)
+        // Sprite animation
+        .add_plugins(AnimationPlugin)
         // UI screens (login, character create, HUD)
         .add_plugins(UiPlugin)
         .add_systems(Startup, || info!("Halestorm client starting (single-player mode)"))

@@ -79,6 +79,7 @@ fn spawn_player_on_enter(
     mut commands: Commands,
     state: Res<ClientState>,
     asset_server: Res<AssetServer>,
+    mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
     player_query: Query<&LocalPlayer>,
     mut has_spawned: Local<bool>,
 ) {
@@ -97,15 +98,25 @@ fn spawn_player_on_enter(
 
     let world_pos = tile_to_world(position, TILE_SIZE);
     let texture: Handle<Image> = asset_server.load("sprites/player.png");
+    let layout = super::animation::lpc_atlas_layout();
+    let layout_handle = texture_atlas_layouts.add(layout);
+
+    // Start facing south, idle frame
+    let idle = super::animation::idle_index(Direction::South);
 
     commands.spawn((
         Sprite {
             image: texture,
+            texture_atlas: Some(TextureAtlas {
+                layout: layout_handle,
+                index: idle,
+            }),
             ..default()
         },
         // z=10 to render above all tile layers
         Transform::from_xyz(world_pos.x, world_pos.y, 10.0),
         LocalPlayer,
+        super::animation::SpriteAnimation::default(),
     ));
 
     commands.insert_resource(PlayerMovement {
