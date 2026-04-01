@@ -107,6 +107,7 @@ fn process_messages(
     mut state: ResMut<ServerState>,
     collision_map: Option<Res<CollisionMap>>,
     db: Option<Res<Database>>,
+    monster_state: Option<Res<super::monsters::MonsterState>>,
 ) {
     state.tick = Tick(state.tick.0 + 1);
 
@@ -283,12 +284,18 @@ fn process_messages(
                         direction,
                     );
 
-                    let walkable = collision_map
+                    let terrain_ok = collision_map
                         .as_ref()
                         .map(|cm| cm.is_walkable(target))
                         .unwrap_or(true);
 
-                    if walkable {
+                    // Check monster collision — players can't walk through monsters
+                    let monster_blocking = monster_state
+                        .as_ref()
+                        .map(|ms| ms.monsters.values().any(|m| m.position == target))
+                        .unwrap_or(false);
+
+                    if terrain_ok && !monster_blocking {
                         character.position = target;
                         character.direction = direction;
                         character.moving = true;

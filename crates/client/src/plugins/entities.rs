@@ -28,8 +28,10 @@ struct RemoteEntityData {
     to_pos: TilePosition,
     direction: Direction,
     progress: f32,
-    /// Duration to interpolate over (matches server tick interval).
+    /// Duration to interpolate over — measured from actual position change intervals.
     interp_duration: f32,
+    /// Time of last position change, for measuring move intervals.
+    last_move_time: f32,
 }
 
 /// Marker for remote entity sprites.
@@ -38,9 +40,8 @@ struct RemoteEntityData {
 struct RemoteEntity(EntityId);
 
 const TILE_SIZE: f32 = 32.0;
-/// Server sends snapshots at 20Hz = every 50ms. We interpolate over slightly
-/// more than one tick to stay smooth even if a snapshot arrives late.
-const INTERP_DURATION: f32 = 0.065;
+/// Default interpolation duration before we measure the actual move interval.
+const DEFAULT_INTERP_DURATION: f32 = 0.3;
 
 fn process_snapshot(
     mut commands: Commands,
@@ -48,6 +49,7 @@ fn process_snapshot(
     mut remote: ResMut<RemoteEntities>,
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
+    time: Res<Time>,
 ) {
     let Some((_tick, ref entities)) = state.latest_snapshot else {
         return;
@@ -67,7 +69,15 @@ fn process_snapshot(
         if let Some(data) = remote.entities.get_mut(&entity_state.entity_id) {
             // Entity already exists — update interpolation target
             if data.to_pos != new_pos {
-                // New position: start interpolating from current visual position
+                // Measure time since last move to set interpolation duration
+                let now = time.elapsed_secs();
+                let interval = now - data.last_move_time;
+                if interval > 0.05 && interval < 2.0 {
+                    // Use measured interval, slightly padded for smoothness
+                    data.interp_duration = interval * 1.05;
+                }
+                data.last_move_time = now;
+
                 data.from_pos = data.to_pos;
                 data.to_pos = new_pos;
                 data.progress = 0.0;
@@ -110,7 +120,8 @@ fn process_snapshot(
                     to_pos: new_pos,
                     direction: entity_state.direction,
                     progress: 1.0,
-                    interp_duration: INTERP_DURATION,
+                    interp_duration: DEFAULT_INTERP_DURATION,
+                    last_move_time: time.elapsed_secs(),
                 },
             );
         }

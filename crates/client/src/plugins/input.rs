@@ -44,21 +44,28 @@ fn handle_movement_input(
     };
 
     let current_pos = state.predicted_position.unwrap_or_default();
+    let target = movement::compute_target(current_pos, direction);
 
-    // Client-side prediction: validate locally before sending
-    let walkable = collision_map
+    // Client-side prediction: validate terrain
+    let terrain_ok = collision_map
         .as_ref()
-        .map(|cm| {
-            let target = movement::compute_target(current_pos, direction);
-            cm.is_walkable(target)
-        })
+        .map(|cm| cm.is_walkable(target))
         .unwrap_or(true);
 
-    if !walkable {
+    if !terrain_ok {
         return;
     }
 
-    let target = movement::compute_target(current_pos, direction);
+    // Check monster collision from latest snapshot
+    if let Some((_tick, ref entities)) = state.latest_snapshot {
+        use halestorm_common::protocol::EntityKind;
+        let monster_blocking = entities.iter().any(|e| {
+            matches!(e.kind, EntityKind::Monster { .. }) && e.position == target
+        });
+        if monster_blocking {
+            return;
+        }
+    }
 
     // Predict locally
     state.predicted_position = Some(target);
