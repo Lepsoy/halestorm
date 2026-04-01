@@ -5,6 +5,7 @@ use halestorm_common::local_transport_plugin::LocalTransportPlugin;
 use halestorm_common::protocol::ClientMessage;
 use halestorm_common::transport::MessageOutbox;
 use halestorm_server::plugins::game::ServerGamePlugin;
+use halestorm_server::plugins::world::ServerWorldPlugin;
 use plugins::camera::CameraPlugin;
 use plugins::game::ClientGamePlugin;
 use plugins::rendering::RenderingPlugin;
@@ -26,6 +27,7 @@ fn main() {
         .add_plugins(RenderingPlugin)
         // Embedded server (single-player mode)
         .add_plugins(ServerGamePlugin)
+        .add_plugins(ServerWorldPlugin)
         // Local transport (in-process channels)
         .add_plugins(LocalTransportPlugin)
         // Client game logic

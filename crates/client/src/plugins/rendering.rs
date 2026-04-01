@@ -1,7 +1,6 @@
 use bevy::prelude::*;
 use halestorm_common::map_loader::ParsedMap;
 use halestorm_common::types::TilePosition;
-use halestorm_server::plugins::game::ServerState;
 
 pub struct RenderingPlugin;
 
@@ -26,15 +25,11 @@ fn load_map(
     mut commands: Commands,
     asset_server: Res<AssetServer>,
     mut texture_atlas_layouts: ResMut<Assets<TextureAtlasLayout>>,
-    mut server_state: ResMut<ServerState>,
 ) {
-    // Load the map
+    // Load the map for rendering (server loads its own copy for game logic)
     let map_path = std::path::Path::new("assets/maps/test_map.tmj");
     let parsed = halestorm_common::map_loader::load_tmj(map_path)
         .expect("Failed to load map — cannot start without it");
-
-    // Set spawn point on server state so new characters spawn correctly
-    server_state.spawn_point = parsed.spawn_point;
 
     info!(
         "Map loaded: {}x{}, {} blocked tiles, spawn at ({}, {})",
@@ -103,8 +98,6 @@ fn load_map(
         ));
     }
 
-    // Store collision map as resource for the server plugin
-    commands.insert_resource(parsed.collision_map.clone());
     commands.insert_resource(MapData { parsed });
 }
 
