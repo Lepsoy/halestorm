@@ -111,6 +111,20 @@ Phase 1 milestone achieved and significantly exceeded. The game has:
 
 ---
 
+### WP-C7: Experience & Leveling
+**Goal:** Monsters give XP on kill. Characters level up with visible feedback.
+
+- XP per monster: fixed value per MonsterKind (goblins = 50 XP). No scaling by player level — per design doc.
+- Exponential XP curve: each level requires more XP than the last. No level cap.
+- Level up grants: increased base HP, increased attack power and magic power, attribute points (up to cap)
+- Level stored in DB, displayed in HUD and character select
+- Visual/audio feedback on level up (flash, text popup)
+- Monster XP values defined in data (monster.rs or data files)
+
+**Test:** Kill goblins, see XP bar fill, level up, HP increases.
+
+---
+
 ## Future Work (After Combat Phase)
 
 ### Multiplayer (WP6-WP8 from original plan)
