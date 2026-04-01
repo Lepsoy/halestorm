@@ -1,7 +1,6 @@
+use halestorm_common::monster::MonsterKind;
 use halestorm_common::protocol::*;
 use halestorm_common::types::*;
-#[allow(unused_imports)]
-use halestorm_common::types::PrimaryClass;
 
 fn roundtrip_client(msg: &ClientMessage) -> ClientMessage {
     let bytes = bincode::serialize(msg).expect("serialize");
@@ -99,14 +98,20 @@ fn server_world_snapshot_roundtrip() {
                 position: TilePosition::new(5, 5),
                 direction: Direction::South,
                 moving: false,
-                class: PrimaryClass::Champion,
+                kind: EntityKind::Player {
+                    class: PrimaryClass::Champion,
+                },
             },
             EntityState {
                 entity_id: EntityId(2),
                 position: TilePosition::new(8, 3),
                 direction: Direction::West,
                 moving: true,
-                class: PrimaryClass::Elementalist,
+                kind: EntityKind::Monster {
+                    kind: MonsterKind::Goblin,
+                    hp: 50,
+                    max_hp: 50,
+                },
             },
         ],
     };

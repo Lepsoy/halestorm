@@ -5,7 +5,7 @@ use argon2::{
 use bevy::prelude::*;
 use halestorm_common::local_transport_plugin::LocalTransportSet;
 use halestorm_common::map::CollisionMap;
-use halestorm_common::protocol::{CharacterInfo, ClientMessage, EntityState, ServerMessage};
+use halestorm_common::protocol::{CharacterInfo, ClientMessage, EntityKind, EntityState, ServerMessage};
 use halestorm_common::transport::{ConnectionId, MessageInbox, MessageOutbox};
 use halestorm_common::types::{Direction, EntityId, PrimaryClass, Tick, TilePosition};
 use std::collections::HashMap;
@@ -35,35 +35,35 @@ impl Plugin for ServerGamePlugin {
 #[derive(Resource, Default)]
 pub struct ServerState {
     /// connection -> authenticated player session
-    sessions: HashMap<ConnectionId, PlayerSession>,
+    pub(crate) sessions: HashMap<ConnectionId, PlayerSession>,
     /// next entity id counter
     next_entity_id: u64,
     /// current server tick
-    tick: Tick,
+    pub(crate) tick: Tick,
     /// configured spawn point (set from map data)
     pub spawn_point: TilePosition,
 }
 
 #[allow(dead_code)]
-struct PlayerSession {
-    player_id: i64,
-    username: String,
-    character: Option<CharacterData>,
-    entity_id: Option<EntityId>,
-    character_db_id: Option<i64>,
+pub(crate) struct PlayerSession {
+    pub(crate) player_id: i64,
+    pub(crate) username: String,
+    pub(crate) character: Option<CharacterData>,
+    pub(crate) entity_id: Option<EntityId>,
+    pub(crate) character_db_id: Option<i64>,
 }
 
 #[allow(dead_code)]
-struct CharacterData {
-    name: String,
-    class: PrimaryClass,
-    position: TilePosition,
-    direction: Direction,
-    moving: bool,
+pub(crate) struct CharacterData {
+    pub(crate) name: String,
+    pub(crate) class: PrimaryClass,
+    pub(crate) position: TilePosition,
+    pub(crate) direction: Direction,
+    pub(crate) moving: bool,
 }
 
 impl ServerState {
-    fn next_entity(&mut self) -> EntityId {
+    pub fn next_entity(&mut self) -> EntityId {
         let id = EntityId(self.next_entity_id);
         self.next_entity_id += 1;
         id
@@ -333,12 +333,13 @@ fn process_messages(
 fn broadcast_world_snapshot(
     mut outbox: ResMut<MessageOutbox<ServerMessage>>,
     state: Res<ServerState>,
+    monster_state: Option<Res<super::monsters::MonsterState>>,
 ) {
     if state.sessions.is_empty() {
         return;
     }
 
-    let entities: Vec<EntityState> = state
+    let mut entities: Vec<EntityState> = state
         .sessions
         .values()
         .filter_map(|session| {
@@ -348,10 +349,29 @@ fn broadcast_world_snapshot(
                 position: character.position,
                 direction: character.direction,
                 moving: character.moving,
-                class: character.class,
+                kind: EntityKind::Player {
+                    class: character.class,
+                },
             })
         })
         .collect();
+
+    // Add monsters
+    if let Some(ref ms) = monster_state {
+        for monster in ms.monsters.values() {
+            entities.push(EntityState {
+                entity_id: monster.entity_id,
+                position: monster.position,
+                direction: monster.direction,
+                moving: false,
+                kind: EntityKind::Monster {
+                    kind: monster.kind,
+                    hp: monster.hp,
+                    max_hp: monster.max_hp,
+                },
+            });
+        }
+    }
 
     let connections: Vec<ConnectionId> = state.sessions.keys().copied().collect();
     outbox.broadcast(

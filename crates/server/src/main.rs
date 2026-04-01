@@ -2,6 +2,7 @@ mod plugins;
 
 use bevy::prelude::*;
 use plugins::game::ServerGamePlugin;
+use plugins::monsters::MonsterPlugin;
 use plugins::persistence::PersistencePlugin;
 use plugins::world::ServerWorldPlugin;
 
@@ -12,6 +13,7 @@ fn main() {
         .add_plugins(PersistencePlugin)
         .add_plugins(ServerGamePlugin)
         .add_plugins(ServerWorldPlugin)
+        .add_plugins(MonsterPlugin)
         .add_systems(Startup, || info!("Halestorm server starting"))
         .run();
 }

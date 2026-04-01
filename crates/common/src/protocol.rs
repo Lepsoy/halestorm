@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::monster::MonsterKind;
 use crate::types::{Direction, EntityId, PlayerId, PrimaryClass, Tick, TilePosition};
 
 /// Messages sent from client to server.
@@ -74,6 +75,13 @@ pub struct CharacterInfo {
     pub class: PrimaryClass,
 }
 
+/// What kind of entity this is.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum EntityKind {
+    Player { class: PrimaryClass },
+    Monster { kind: MonsterKind, hp: i32, max_hp: i32 },
+}
+
 /// State of a single entity as seen in a world snapshot.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntityState {
@@ -81,5 +89,5 @@ pub struct EntityState {
     pub position: TilePosition,
     pub direction: Direction,
     pub moving: bool,
-    pub class: PrimaryClass,
+    pub kind: EntityKind,
 }

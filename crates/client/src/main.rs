@@ -3,10 +3,12 @@ mod plugins;
 use bevy::prelude::*;
 use halestorm_common::local_transport_plugin::LocalTransportPlugin;
 use halestorm_server::plugins::game::ServerGamePlugin;
+use halestorm_server::plugins::monsters::MonsterPlugin;
 use halestorm_server::plugins::persistence::PersistencePlugin;
 use halestorm_server::plugins::world::ServerWorldPlugin;
 use plugins::animation::AnimationPlugin;
 use plugins::camera::CameraPlugin;
+use plugins::entities::EntitiesPlugin;
 use plugins::game::ClientGamePlugin;
 use plugins::input::InputPlugin;
 use plugins::player::PlayerPlugin;
@@ -40,6 +42,7 @@ fn main() {
         .add_plugins(PersistencePlugin)
         .add_plugins(ServerGamePlugin)
         .add_plugins(ServerWorldPlugin)
+        .add_plugins(MonsterPlugin)
         // Local transport (in-process channels)
         .add_plugins(LocalTransportPlugin)
         // Client game logic
@@ -50,6 +53,8 @@ fn main() {
         .add_plugins(InputPlugin)
         // Sprite animation
         .add_plugins(AnimationPlugin)
+        // Remote entity rendering (monsters, other players)
+        .add_plugins(EntitiesPlugin)
         // UI screens (login, character create, HUD)
         .add_plugins(UiPlugin)
         .add_systems(Startup, || info!("Halestorm client starting (single-player mode)"))

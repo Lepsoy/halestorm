@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use halestorm_common::protocol::{CharacterInfo, ClientMessage, ServerMessage};
+use halestorm_common::protocol::{CharacterInfo, ClientMessage, EntityState, ServerMessage};
 use halestorm_common::transport::{ConnectionId, MessageInbox, MessageOutbox};
 use halestorm_common::types::{EntityId, PlayerId, PrimaryClass, Tick, TilePosition};
 
@@ -28,6 +28,8 @@ pub struct ClientState {
     pub class: Option<PrimaryClass>,
     /// Characters available on this account
     pub characters: Vec<CharacterInfo>,
+    /// Latest world snapshot from server.
+    pub latest_snapshot: Option<(Tick, Vec<EntityState>)>,
     /// Set when a character was just created (triggers return to select screen)
     pub character_just_created: bool,
     /// Last status message for UI display (login errors, etc.)
@@ -130,8 +132,8 @@ fn process_server_messages(
                 );
             }
 
-            ServerMessage::WorldSnapshot { .. } => {
-                // TODO: entity interpolation in WP7
+            ServerMessage::WorldSnapshot { tick, entities } => {
+                state.latest_snapshot = Some((tick, entities));
             }
         }
     }
