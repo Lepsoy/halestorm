@@ -3,7 +3,7 @@ use halestorm_common::protocol::EntityKind;
 use halestorm_common::types::{Direction, EntityId, TilePosition};
 use std::collections::{HashMap, HashSet};
 
-use super::animation::{SpriteAnimation, idle_index, lpc_atlas_layout};
+use super::animation::{SpriteAnimation, idle_index, lpc_atlas_layout, walk_index};
 use super::game::ClientState;
 use super::rendering::tile_to_world;
 
@@ -147,10 +147,11 @@ fn process_snapshot(
 fn interpolate_remote_entities(
     time: Res<Time>,
     mut remote: ResMut<RemoteEntities>,
-    mut query: Query<(&mut Transform, &mut SpriteAnimation), With<RemoteEntity>>,
+    mut query: Query<(&mut Transform, &mut Sprite, &mut SpriteAnimation), With<RemoteEntity>>,
 ) {
     for data in remote.entities.values_mut() {
-        if data.progress < 1.0 {
+        let is_moving = data.progress < 1.0;
+        if is_moving {
             data.progress += time.delta_secs() / data.interp_duration;
             if data.progress > 1.0 {
                 data.progress = 1.0;
@@ -161,11 +162,28 @@ fn interpolate_remote_entities(
         let to_world = tile_to_world(data.to_pos, TILE_SIZE);
         let lerped = from_world.lerp(to_world, data.progress);
 
-        if let Ok((mut transform, mut anim)) = query.get_mut(data.bevy_entity) {
+        if let Ok((mut transform, mut sprite, mut anim)) = query.get_mut(data.bevy_entity) {
             transform.translation.x = lerped.x;
             transform.translation.y = lerped.y;
             transform.translation.z = 10.0 - lerped.y * 0.001;
             anim.facing = data.direction;
+
+            let index = if data.progress < 1.0 {
+                // Walking: cycle through frames 1..=8
+                anim.timer.tick(time.delta());
+                if anim.timer.just_finished() {
+                    anim.frame = (anim.frame % 8) + 1;
+                }
+                walk_index(data.direction, anim.frame.max(1))
+            } else {
+                // Idle
+                anim.frame = 0;
+                idle_index(anim.facing)
+            };
+
+            if let Some(ref mut atlas) = sprite.texture_atlas {
+                atlas.index = index;
+            }
         }
     }
 }

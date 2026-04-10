@@ -3,6 +3,21 @@ use std::path::Path;
 use crate::map::CollisionMap;
 use crate::types::TilePosition;
 
+/// Metadata for a single tileset referenced by a Tiled map.
+#[derive(Debug, Clone)]
+pub struct TilesetInfo {
+    /// First global tile ID for this tileset (Tiled `firstgid`).
+    pub firstgid: u32,
+    /// Relative path to the tileset image (from the map file).
+    pub image: String,
+    /// Number of columns in the tileset atlas.
+    pub columns: u32,
+    /// Number of rows in the tileset atlas.
+    pub rows: u32,
+    /// Total tile count in this tileset.
+    pub tile_count: u32,
+}
+
 /// Parsed data from a .tmj Tiled map file.
 pub struct ParsedMap {
     pub width: i32,
@@ -12,6 +27,7 @@ pub struct ParsedMap {
     pub ground_tiles: Vec<u32>,
     pub wall_tiles: Vec<u32>,
     pub tile_size: i32,
+    pub tilesets: Vec<TilesetInfo>,
 }
 
 /// Load and parse a .tmj (Tiled JSON) map file.
@@ -28,6 +44,30 @@ pub fn parse_tmj(content: &str) -> Result<ParsedMap, String> {
     let width = root["width"].as_i64().ok_or("missing width")? as i32;
     let height = root["height"].as_i64().ok_or("missing height")? as i32;
     let tile_size = root["tilewidth"].as_i64().ok_or("missing tilewidth")? as i32;
+
+    let mut tilesets = Vec::new();
+    if let Some(ts_array) = root["tilesets"].as_array() {
+        for ts in ts_array {
+            let firstgid = ts["firstgid"].as_u64().unwrap_or(1) as u32;
+            let image = ts["image"].as_str().unwrap_or("").to_string();
+            let columns = ts["columns"].as_u64().unwrap_or(1) as u32;
+            let tile_count = ts["tilecount"].as_u64().unwrap_or(1) as u32;
+            let rows = if columns > 0 {
+                (tile_count + columns - 1) / columns
+            } else {
+                1
+            };
+            tilesets.push(TilesetInfo {
+                firstgid,
+                image,
+                columns,
+                rows,
+                tile_count,
+            });
+        }
+    }
+    // Sort by firstgid so lookups work correctly
+    tilesets.sort_by_key(|t| t.firstgid);
 
     let layers = root["layers"].as_array().ok_or("missing layers")?;
 
@@ -111,6 +151,7 @@ pub fn parse_tmj(content: &str) -> Result<ParsedMap, String> {
         ground_tiles,
         wall_tiles,
         tile_size,
+        tilesets,
     })
 }
 

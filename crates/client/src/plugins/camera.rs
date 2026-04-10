@@ -16,9 +16,8 @@ fn setup_camera(mut commands: Commands) {
     commands.spawn((
         Camera2d,
         GameCamera,
-        // Zoom out a bit to see more of the map
         Projection::from(OrthographicProjection {
-            scale: 1.5,
+            scale: 0.6,
             ..OrthographicProjection::default_2d()
         }),
     ));

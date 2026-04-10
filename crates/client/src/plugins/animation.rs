@@ -69,6 +69,11 @@ pub fn idle_index(direction: Direction) -> usize {
     atlas_index(direction_to_row(direction), 0)
 }
 
+/// Returns the walk atlas index for a given direction and frame (1..=8).
+pub fn walk_index(direction: Direction, frame: usize) -> usize {
+    atlas_index(direction_to_row(direction), frame)
+}
+
 fn animate_player_sprite(
     time: Res<Time>,
     player_mov: Option<Res<PlayerMovement>>,
